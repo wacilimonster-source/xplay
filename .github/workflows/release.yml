@@ -1,0 +1,44 @@
+name: Build and publish Android release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.9"
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build arm64 APK
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: XPlay ${{ github.ref_name }}
+          body: |
+            XPlay 汉化版本 ${{ github.ref_name }}
+
+            - 中文界面
+            - GitHub 检查更新
+            - Android arm64 Release APK
+          files: build/app/outputs/flutter-apk/app-release.apk
+          generate_release_notes: true
