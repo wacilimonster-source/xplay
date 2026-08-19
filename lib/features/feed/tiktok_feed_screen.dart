@@ -116,7 +116,7 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
             ),
             const SizedBox(width: 12),
             const Text(
-              "XFlow",
+              "XPlay",
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
           ],
@@ -126,7 +126,7 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
             TextButton.icon(
               onPressed: () => _goToLogin(),
               icon: const Icon(Icons.login),
-              label: const Text('Login'),
+              label: const Text('登录'),
             ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
@@ -159,8 +159,7 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
                 children: [
                   CircularProgressIndicator(),
                   SizedBox(height: 16),
-                  Text('Fetching latest media...',
-                      style: TextStyle(color: Colors.white70)),
+                  Text('正在获取最新媒体...', style: TextStyle(color: Colors.white70)),
                 ],
               ),
             );
@@ -218,12 +217,11 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('No media found.',
-              style: TextStyle(color: Colors.white70)),
+          const Text('未找到媒体内容', style: TextStyle(color: Colors.white70)),
           const SizedBox(height: 16),
           FilledButton.tonal(
             onPressed: () => _goToLogin(),
-            child: const Text('Login to X'),
+            child: const Text('登录 X'),
           ),
         ],
       ),
@@ -235,17 +233,17 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('Error: $e',
+          Text('错误：$e',
               style: const TextStyle(color: Colors.white70),
               textAlign: TextAlign.center),
           const SizedBox(height: 16),
           FilledButton.tonal(
             onPressed: () => _goToLogin(),
-            child: const Text('Login to X'),
+            child: const Text('登录 X'),
           ),
           TextButton(
             onPressed: () => ref.invalidate(feedNotifierProvider),
-            child: const Text('Retry'),
+            child: const Text('重试'),
           ),
         ],
       ),
@@ -330,15 +328,15 @@ class DiscoveryDebugOverlay extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _debugLine('TYPE', tweet.isVideo ? 'VIDEO' : 'IMAGE'),
-                  _debugLine('SOURCE', tweet.source ?? 'UNKNOWN'),
-                  _debugLine('ID', tweet.id.substring(tweet.id.length - 8)),
-                  _debugLine('MEDIA', '${tweet.mediaUrls.length} urls'),
-                  _debugLine('SEEN', '${stats.$1} times'),
-                  _debugLine('ACCT_SEEN', '${stats.$2} times'),
+                  _debugLine('类型', tweet.isVideo ? '视频' : '图片'),
+                  _debugLine('来源', tweet.source ?? '未知'),
+                  _debugLine('编号', tweet.id.substring(tweet.id.length - 8)),
+                  _debugLine('媒体', '${tweet.mediaUrls.length} 个地址'),
+                  _debugLine('已看', '${stats.$1} 次'),
+                  _debugLine('账号已看', '${stats.$2} 次'),
                   if (tweet.createdAt != null)
                     _debugLine(
-                        'TS',
+                        '时间',
                         tweet.createdAt!
                             .toLocal()
                             .toString()

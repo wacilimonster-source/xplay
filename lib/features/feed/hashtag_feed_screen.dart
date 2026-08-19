@@ -18,11 +18,11 @@ class HashtagListScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Add Hashtag'),
+        title: const Text('添加话题'),
         content: TextField(
           controller: controller,
           decoration: const InputDecoration(
-            hintText: 'e.g. #nature or nature',
+            hintText: '例如：#自然 或 自然',
             prefixText: '#',
           ),
           autofocus: true,
@@ -30,7 +30,7 @@ class HashtagListScreen extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: const Text('取消'),
           ),
           TextButton(
             onPressed: () {
@@ -40,7 +40,7 @@ class HashtagListScreen extends ConsumerWidget {
               }
               Navigator.pop(context);
             },
-            child: const Text('Add'),
+            child: const Text('添加'),
           ),
         ],
       ),
@@ -53,7 +53,7 @@ class HashtagListScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Hashtags'),
+        title: const Text('话题'),
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
@@ -76,12 +76,12 @@ class HashtagListScreen extends ConsumerWidget {
                   children: [
                     const Icon(Icons.tag, size: 64, color: Colors.white24),
                     const SizedBox(height: 16),
-                    const Text('No hashtags added yet',
+                    const Text('还没有添加话题',
                         style: TextStyle(color: Colors.white70)),
                     const SizedBox(height: 16),
                     ElevatedButton(
                       onPressed: () => _showAddHashtagDialog(context, ref),
-                      child: const Text('Add your first hashtag'),
+                      child: const Text('添加第一个话题'),
                     ),
                   ],
                 ),
@@ -104,7 +104,7 @@ class HashtagListScreen extends ConsumerWidget {
                 },
               ),
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, st) => Center(child: Text('Error: $e')),
+        error: (e, st) => Center(child: Text('错误：$e')),
       ),
     );
   }
@@ -113,19 +113,19 @@ class HashtagListScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Remove Hashtag'),
-        content: Text('Are you sure you want to remove $tag?'),
+        title: const Text('删除话题'),
+        content: Text('确定要删除 $tag 吗？'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: const Text('取消'),
           ),
           TextButton(
             onPressed: () {
               ref.read(hashtagListProvider.notifier).removeHashtag(tag);
               Navigator.pop(context);
             },
-            child: const Text('Remove', style: TextStyle(color: Colors.red)),
+            child: const Text('删除', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -246,8 +246,8 @@ class _HashtagMediaFeedScreenState
           final tweets = state.tweets;
           if (tweets.isEmpty) {
             return const Center(
-                child: Text('No media found',
-                    style: TextStyle(color: Colors.white70)));
+                child:
+                    Text('未找到媒体内容', style: TextStyle(color: Colors.white70)));
           }
 
           _managePool();
@@ -300,13 +300,13 @@ class _HashtagMediaFeedScreenState
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Error: $e', style: const TextStyle(color: Colors.white70)),
+              Text('错误：$e', style: const TextStyle(color: Colors.white70)),
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () => ref
                     .read(hashtagMediaProvider(widget.hashtag).notifier)
                     .refresh(),
-                child: const Text('Retry'),
+                child: const Text('重试'),
               ),
             ],
           ),
@@ -315,6 +315,7 @@ class _HashtagMediaFeedScreenState
     );
   }
 }
+
 class HashtagFeedItem extends StatelessWidget {
   final Tweet tweet;
   final bool isVisible;

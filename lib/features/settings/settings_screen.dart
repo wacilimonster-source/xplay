@@ -278,6 +278,28 @@ class _SettingsTile extends StatelessWidget {
 class PlaybackSettingsPage extends ConsumerWidget {
   const PlaybackSettingsPage({super.key});
 
+  String _getVideoEndActionLabel(VideoEndAction action) {
+    switch (action) {
+      case VideoEndAction.pause:
+        return '暂停';
+      case VideoEndAction.replay:
+        return '重播';
+      case VideoEndAction.playNext:
+        return '播放下一条';
+    }
+  }
+
+  String _getMediaFilterLabel(MediaFilter filter) {
+    switch (filter) {
+      case MediaFilter.video:
+        return '视频';
+      case MediaFilter.image:
+        return '图片';
+      case MediaFilter.text:
+        return '文字';
+    }
+  }
+
   String _getFeedSortLabel(FeedSort sort) {
     switch (sort) {
       case FeedSort.latest:
@@ -328,13 +350,14 @@ class PlaybackSettingsPage extends ConsumerWidget {
           ),
           ListTile(
             title: const Text('视频播放结束后'),
-            subtitle: Text('操作：${settings.videoEndAction.name.toUpperCase()}'),
+            subtitle:
+                Text('操作：${_getVideoEndActionLabel(settings.videoEndAction)}'),
             trailing: DropdownButton<VideoEndAction>(
               value: settings.videoEndAction,
               items: VideoEndAction.values
                   .map((action) => DropdownMenuItem(
                         value: action,
-                        child: Text(action.name.toUpperCase()),
+                        child: Text(_getVideoEndActionLabel(action)),
                       ))
                   .toList(),
               onChanged: (val) => val != null
@@ -362,7 +385,7 @@ class PlaybackSettingsPage extends ConsumerWidget {
               spacing: 8.0,
               children: MediaFilter.values
                   .map((f) => FilterChip(
-                        label: Text(f.name.toUpperCase()),
+                        label: Text(_getMediaFilterLabel(f)),
                         selected: settings.filters.contains(f),
                         onSelected: (_) => notifier.toggleFilter(f),
                       ))

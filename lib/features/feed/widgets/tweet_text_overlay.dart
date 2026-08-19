@@ -100,11 +100,11 @@ class _TweetTextOverlayState extends ConsumerState<TweetTextOverlay> {
         const SizedBox(height: 16),
         _ActionButton(
           icon: Icons.share_outlined,
-          label: "Share",
+          label: "分享",
           onTap: () {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text("Share functionality coming soon!"),
+                content: Text("分享功能即将推出"),
                 duration: Duration(seconds: 1),
               ),
             );
@@ -115,7 +115,7 @@ class _TweetTextOverlayState extends ConsumerState<TweetTextOverlay> {
           _ActionButton(
             icon:
                 widget.isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-            label: widget.isFullscreen ? "Exit" : "Full",
+            label: widget.isFullscreen ? "退出全屏" : "全屏",
             onTap: widget.onFullscreen!,
           ),
         ],
@@ -134,7 +134,8 @@ class _TweetTextOverlayState extends ConsumerState<TweetTextOverlay> {
 
   Widget _buildUserHeader(BuildContext context) {
     final subscriptionState = ref.watch(subscriptionListProvider);
-    final isSubscribed = subscriptionState.isSubscribed(widget.tweet.userHandle);
+    final isSubscribed =
+        subscriptionState.isSubscribed(widget.tweet.userHandle);
 
     String dateStr = "";
     if (widget.tweet.createdAt != null) {
@@ -237,7 +238,7 @@ class _TweetTextOverlayState extends ConsumerState<TweetTextOverlay> {
               visualDensity: VisualDensity.compact,
               padding: EdgeInsets.zero,
             ),
-            tooltip: 'Subscribe',
+            tooltip: '订阅',
           ),
       ],
     );
@@ -336,7 +337,7 @@ class _TweetTextOverlayState extends ConsumerState<TweetTextOverlay> {
             const Padding(
               padding: EdgeInsets.only(top: 4.0),
               child: Text(
-                "Read more",
+                "展开全文",
                 style: TextStyle(
                   color: Colors.white70,
                   fontWeight: FontWeight.bold,

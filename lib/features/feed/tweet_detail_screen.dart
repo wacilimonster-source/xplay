@@ -62,7 +62,7 @@ class TweetRepliesSheet extends ConsumerWidget {
                 child: Row(
                   children: [
                     Text(
-                      'Replies',
+                      '回复',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
@@ -89,7 +89,7 @@ class TweetRepliesSheet extends ConsumerWidget {
                           Padding(
                             padding: EdgeInsets.all(48.0),
                             child: Center(
-                              child: Text('No replies yet'),
+                              child: Text('暂无回复'),
                             ),
                           ),
                         ],
@@ -109,7 +109,7 @@ class TweetRepliesSheet extends ConsumerWidget {
                   error: (e, st) => Center(
                     child: Padding(
                       padding: const EdgeInsets.all(24.0),
-                      child: Text('Error loading replies: $e'),
+                      child: Text('加载回复失败：$e'),
                     ),
                   ),
                 ),

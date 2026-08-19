@@ -16,14 +16,14 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('App Logs'),
+        title: const Text('应用日志'),
         actions: [
           IconButton(
             icon: const Icon(Icons.copy),
             onPressed: () {
               Clipboard.setData(ClipboardData(text: logs.join('\n')));
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Logs copied to clipboard')),
+                const SnackBar(content: Text('日志已复制到剪贴板')),
               );
             },
           ),

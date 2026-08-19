@@ -111,7 +111,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Login to X')),
+      appBar: AppBar(title: const Text('登录 X')),
       body: WebViewWidget(controller: _controller),
     );
   }

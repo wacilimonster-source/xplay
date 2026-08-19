@@ -120,7 +120,8 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
         children: [
           TextTweetCard(text: widget.tweet.text),
           if (widget.overlayBuilder != null)
-            Positioned.fill(child: widget.overlayBuilder!(context, null, false)),
+            Positioned.fill(
+                child: widget.overlayBuilder!(context, null, false)),
         ],
       );
     }
@@ -152,7 +153,8 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
               ),
             ),
           if (widget.overlayBuilder != null)
-            Positioned.fill(child: widget.overlayBuilder!(context, null, false)),
+            Positioned.fill(
+                child: widget.overlayBuilder!(context, null, false)),
         ],
       );
     }
@@ -197,10 +199,10 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
                   const Icon(Icons.error_outline,
                       color: Colors.white70, size: 48),
                   const SizedBox(height: 16),
-                  const Text('Playback failed. Moving to next...',
+                  const Text('播放失败，正在切换到下一条...',
                       style: TextStyle(color: Colors.white70)),
                   const SizedBox(height: 8),
-                  Text('Error: ${snapshot.data}',
+                  Text('错误：${snapshot.data}',
                       style:
                           const TextStyle(color: Colors.white38, fontSize: 12)),
                 ],
@@ -219,15 +221,17 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
                   // 1. Get latest dimensions
                   final width = instance.player.state.width;
                   final height = instance.player.state.height;
-                  
-                  // Use aspect ratio for better detection. 
+
+                  // Use aspect ratio for better detection.
                   // Default to portrait (isLandscape = false) if dimensions are missing or invalid.
-                  final double aspectRatio = (width != null && height != null && height != 0) 
-                      ? width / height 
-                      : 0.0;
+                  final double aspectRatio =
+                      (width != null && height != null && height != 0)
+                          ? width / height
+                          : 0.0;
                   final isLandscape = aspectRatio > 1.0;
 
-                  AppLogger.log('XFLOW: Fullscreen toggle. ID: ${widget.tweet.id} W: $width H: $height AR: $aspectRatio Landscape: $isLandscape');
+                  AppLogger.log(
+                      'XFLOW: Fullscreen toggle. ID: ${widget.tweet.id} W: $width H: $height AR: $aspectRatio Landscape: $isLandscape');
 
                   // 2. Start orientation change immediately
                   if (isLandscape) {
@@ -251,7 +255,9 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
           }
 
           // Handle auto-fullscreen if requested
-          if (widget.isVisible && widget.autoFullscreen && !_isAutoFullscreenDone) {
+          if (widget.isVisible &&
+              widget.autoFullscreen &&
+              !_isAutoFullscreenDone) {
             _isAutoFullscreenDone = true;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
@@ -312,12 +318,13 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
                                           builder: (context, ref, child) {
                                             final isLiked = ref.watch(
                                                 feedNotifierProvider.select(
-                                                    (s) => s.value?.tweets
-                                                        .firstWhere((t) =>
-                                                            t.id ==
-                                                            widget.tweet.id)
-                                                        .isLiked ??
-                                                    false));
+                                                    (s) =>
+                                                        s.value?.tweets
+                                                            .firstWhere((t) =>
+                                                                t.id ==
+                                                                widget.tweet.id)
+                                                            .isLiked ??
+                                                        false));
                                             return Icon(
                                               isLiked
                                                   ? Icons.favorite

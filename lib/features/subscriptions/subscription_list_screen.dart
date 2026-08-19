@@ -77,8 +77,7 @@ class SubscriptionListState {
     final normalized =
         screenName.startsWith('@') ? screenName.substring(1) : screenName;
     final lower = normalized.toLowerCase();
-    return allSubscriptions
-        .any((sub) => sub.screenName.toLowerCase() == lower);
+    return allSubscriptions.any((sub) => sub.screenName.toLowerCase() == lower);
   }
 
   SubscriptionListState copyWith({
@@ -203,8 +202,8 @@ class SubscriptionListScreen extends ConsumerWidget {
               children: [
                 Text(
                   state.searchQuery.isEmpty
-                      ? 'No subscriptions found.'
-                      : 'No results matching "${state.searchQuery}"',
+                      ? '未找到订阅内容'
+                      : '没有匹配“${state.searchQuery}”的结果',
                   style: Theme.of(context)
                       .textTheme
                       .bodyMedium
@@ -215,7 +214,7 @@ class SubscriptionListScreen extends ConsumerWidget {
                   FilledButton.tonal(
                     onPressed: () => Navigator.push(context,
                         MaterialPageRoute(builder: (c) => const LoginScreen())),
-                    child: const Text('Login to X'),
+                    child: const Text('登录 X'),
                   ),
                 ],
               ],
@@ -254,7 +253,7 @@ class SubscriptionListScreen extends ConsumerWidget {
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   subtitle: Text(
-                    '@${sub.screenName}${sub.followersCount != null ? " • ${_formatCount(sub.followersCount!)} followers" : ""}${views > 0 ? " • $views views" : ""}',
+                    '@${sub.screenName}${sub.followersCount != null ? " • ${_formatCount(sub.followersCount!)} 粉丝" : ""}${views > 0 ? " • $views 次观看" : ""}',
                     style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
@@ -287,7 +286,7 @@ class SubscriptionListScreen extends ConsumerWidget {
                 onPressed: () =>
                     ref.read(subscriptionListProvider.notifier).refresh(),
               ),
-        title: const Text('Subscriptions'),
+        title: const Text('订阅'),
         actions: [
           if (!isStandalone)
             IconButton(
@@ -325,7 +324,7 @@ class SubscriptionListScreen extends ConsumerWidget {
       child: Column(
         children: [
           SearchBar(
-            hintText: 'Search subscriptions...',
+            hintText: '搜索订阅...',
             onChanged: notifier.setSearchQuery,
             leading: const Icon(Icons.search),
             elevation: WidgetStateProperty.all(0),
@@ -355,25 +354,25 @@ class SubscriptionSortSettings extends ConsumerWidget {
       child: Row(
         children: [
           _SortChip(
-            label: 'Name',
+            label: '名称',
             isSelected: state.sort == SubscriptionSort.name,
             onTap: () => notifier.setSort(SubscriptionSort.name),
           ),
           const SizedBox(width: 8),
           _SortChip(
-            label: 'Handle',
+            label: '用户名',
             isSelected: state.sort == SubscriptionSort.handle,
             onTap: () => notifier.setSort(SubscriptionSort.handle),
           ),
           const SizedBox(width: 8),
           _SortChip(
-            label: 'Followers',
+            label: '粉丝数',
             isSelected: state.sort == SubscriptionSort.followers,
             onTap: () => notifier.setSort(SubscriptionSort.followers),
           ),
           const SizedBox(width: 8),
           _SortChip(
-            label: 'Views',
+            label: '观看数',
             isSelected: state.sort == SubscriptionSort.views,
             onTap: () => notifier.setSort(SubscriptionSort.views),
           ),
@@ -387,7 +386,7 @@ class SubscriptionSortSettings extends ConsumerWidget {
               size: 20,
             ),
             onPressed: notifier.toggleOrder,
-            tooltip: state.isAscending ? 'Ascending' : 'Descending',
+            tooltip: state.isAscending ? '升序' : '降序',
           ),
         ],
       ),

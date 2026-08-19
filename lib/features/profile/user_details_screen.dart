@@ -25,7 +25,7 @@ class UserDetailsScreen extends ConsumerWidget {
       body: profileAsync.when(
         data: (profile) {
           if (profile == null) {
-            return const Center(child: Text('User not found'));
+            return const Center(child: Text('未找到用户'));
           }
           return CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
@@ -143,12 +143,10 @@ class UserDetailsScreen extends ConsumerWidget {
                           _buildStat(
                               context,
                               _formatCount(profile.followingCount ?? 0),
-                              'Following'),
+                              '正在关注'),
                           const SizedBox(width: 24),
-                          _buildStat(
-                              context,
-                              _formatCount(profile.followersCount ?? 0),
-                              'Followers'),
+                          _buildStat(context,
+                              _formatCount(profile.followersCount ?? 0), '粉丝'),
                         ],
                       ),
                       const Divider(height: 32),
@@ -166,7 +164,7 @@ class UserDetailsScreen extends ConsumerWidget {
                       child: Center(
                         child: Padding(
                           padding: EdgeInsets.all(32.0),
-                          child: Text('No media found'),
+                          child: Text('未找到媒体内容'),
                         ),
                       ),
                     );
@@ -194,7 +192,7 @@ class UserDetailsScreen extends ConsumerWidget {
                                 children: [
                                   CircularProgressIndicator(),
                                   SizedBox(height: 16),
-                                  Text('Fetching latest items...',
+                                  Text('正在获取最新内容...',
                                       style: TextStyle(color: Colors.white70)),
                                 ],
                               ),
@@ -377,7 +375,7 @@ class UserDetailsScreen extends ConsumerWidget {
                   ),
                 ),
                 error: (e, st) => SliverToBoxAdapter(
-                  child: Center(child: Text('Error: $e')),
+                  child: Center(child: Text('错误：$e')),
                 ),
               ),
               const SliverPadding(padding: EdgeInsets.only(bottom: 32)),
@@ -385,7 +383,7 @@ class UserDetailsScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, st) => Center(child: Text('Error loading profile: $e')),
+        error: (e, st) => Center(child: Text('加载用户资料失败：$e')),
       ),
     );
   }
@@ -453,7 +451,7 @@ class _SubscribeButton extends ConsumerWidget {
             );
       },
       icon: Icon(isSubscribed ? Icons.check : Icons.add, size: 20),
-      tooltip: isSubscribed ? 'Subscribed' : 'Subscribe',
+      tooltip: isSubscribed ? '已订阅' : '订阅',
     );
   }
 }

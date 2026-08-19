@@ -175,7 +175,7 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('No media found.',
+                  const Text('未找到媒体内容',
                       style: TextStyle(color: Colors.white70)),
                   const SizedBox(height: 16),
                   ElevatedButton(
@@ -183,7 +183,7 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
                         .read(userMediaNotifierProvider(widget.screenName)
                             .notifier)
                         .refresh(),
-                    child: const Text('Refresh'),
+                    child: const Text('刷新'),
                   ),
                 ],
               ),
@@ -242,13 +242,13 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Error: $e', style: const TextStyle(color: Colors.white70)),
+              Text('错误：$e', style: const TextStyle(color: Colors.white70)),
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () => ref
                     .read(userMediaNotifierProvider(widget.screenName).notifier)
                     .refresh(),
-                child: const Text('Retry'),
+                child: const Text('重试'),
               ),
             ],
           ),
@@ -257,6 +257,7 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
     );
   }
 }
+
 class UserMediaFeedItem extends StatelessWidget {
   final Tweet tweet;
   final bool isVisible;

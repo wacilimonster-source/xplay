@@ -20,7 +20,7 @@ class _SubscriptionImportScreenState extends State<SubscriptionImportScreen> {
   Future<void> _importSubscriptions() async {
     if (_fromScreenName == null || _fromScreenName!.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a username')),
+        const SnackBar(content: Text('请输入用户名')),
       );
       return;
     }
@@ -36,7 +36,7 @@ class _SubscriptionImportScreenState extends State<SubscriptionImportScreen> {
 
       final user = await client.fetchProfile(_fromScreenName!);
       if (user == null) {
-        throw Exception('User not found');
+        throw Exception('未找到该用户');
       }
 
       final following = await client.fetchFollowing(user.id);
@@ -70,7 +70,7 @@ class _SubscriptionImportScreenState extends State<SubscriptionImportScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Import Subscriptions'),
+        title: const Text('导入订阅'),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -92,7 +92,7 @@ class _SubscriptionImportScreenState extends State<SubscriptionImportScreen> {
                           size: 48, color: Colors.blue),
                       const SizedBox(height: 16),
                       Text(
-                        'Enter a username to sync their following list into your XFlow subscriptions.',
+                        '输入用户名，将该用户的关注列表同步到你的 XPlay 订阅中。',
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color:
@@ -109,9 +109,9 @@ class _SubscriptionImportScreenState extends State<SubscriptionImportScreen> {
                             borderRadius: BorderRadius.circular(16),
                             borderSide: BorderSide.none,
                           ),
-                          hintText: 'Enter X username',
+                          hintText: '输入 X 用户名',
                           prefixIcon: const Icon(Icons.alternate_email),
-                          labelText: 'Username',
+                          labelText: '用户名',
                         ),
                         maxLength: 15,
                         inputFormatters: [
@@ -136,8 +136,7 @@ class _SubscriptionImportScreenState extends State<SubscriptionImportScreen> {
                                   child: CircularProgressIndicator(
                                       strokeWidth: 2, color: Colors.white))
                               : const Icon(Icons.cloud_download),
-                          label: Text(
-                              _isImporting ? 'Importing...' : 'Start Import'),
+                          label: Text(_isImporting ? '正在导入...' : '开始导入'),
                           style: FilledButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(
@@ -158,7 +157,7 @@ class _SubscriptionImportScreenState extends State<SubscriptionImportScreen> {
                       return _StatusCard(
                         icon: Icons.error_outline,
                         color: Colors.redAccent,
-                        message: 'Error: ${snapshot.error}',
+                        message: '错误：${snapshot.error}',
                       );
                     }
 
@@ -166,7 +165,7 @@ class _SubscriptionImportScreenState extends State<SubscriptionImportScreen> {
                       return _StatusCard(
                         icon: Icons.sync,
                         color: Colors.blue,
-                        message: 'Found ${snapshot.data} users so far...',
+                        message: '目前已找到 ${snapshot.data} 位用户...',
                         isSpinning: true,
                       );
                     }
@@ -175,7 +174,7 @@ class _SubscriptionImportScreenState extends State<SubscriptionImportScreen> {
                       return _StatusCard(
                         icon: Icons.check_circle_outline,
                         color: Colors.green,
-                        message: 'Success! Imported ${snapshot.data} users.',
+                        message: '导入成功！已导入 ${snapshot.data} 位用户。',
                       );
                     }
 
