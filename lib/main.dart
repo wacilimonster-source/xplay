@@ -15,6 +15,8 @@ import 'core/client/twitter_account.dart';
 import 'core/client/query_id_resolver.dart';
 import 'core/database/repository.dart';
 import 'core/utils/lifecycle_provider.dart';
+import 'core/services/update_service.dart';
+import 'features/settings/update_dialog.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,6 +33,9 @@ void main() async {
 
 class XFlowApp extends ConsumerWidget {
   const XFlowApp({super.key});
+
+  static final navigatorKey = GlobalKey<NavigatorState>();
+  static bool _startupUpdateCheckStarted = false;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -53,11 +58,16 @@ class XFlowApp extends ConsumerWidget {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       BackgroundSync.start(TwitterClient(), ref.read(settingsProvider));
+      if (!_startupUpdateCheckStarted) {
+        _startupUpdateCheckStarted = true;
+        _checkForStartupUpdate();
+      }
     });
 
     return MaterialApp(
       title: 'XPlay',
       debugShowCheckedModeBanner: false,
+      navigatorKey: navigatorKey,
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
@@ -80,6 +90,17 @@ class XFlowApp extends ConsumerWidget {
         ),
       ),
       home: const MainScaffold(),
+    );
+  }
+
+  Future<void> _checkForStartupUpdate() async {
+    final updateInfo = await UpdateService.checkForUpdate();
+    if (updateInfo == null) return;
+    final dialogContext = navigatorKey.currentState?.overlay?.context;
+    if (dialogContext == null || !dialogContext.mounted) return;
+    await showDialog<void>(
+      context: dialogContext,
+      builder: (_) => UpdateDialog(updateInfo: updateInfo),
     );
   }
 }

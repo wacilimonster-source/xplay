@@ -1,135 +1,258 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class UpdateService {
-  static const String _repoUrl = 'https://github.com/wacilimonster-source/xplay';
-  static const String _latestReleaseUrl = '$_repoUrl/releases/latest';
-  static const String _apiUrl = 'https://api.github.com/repos/wacilimonster-source/xplay/releases/latest';
+  static const String updateManifestUrl =
+      'https://raw.githubusercontent.com/wacilimonster-source/xplay/main/update.json';
   static const String _lastCheckedKey = 'last_update_check';
   static const String _ignoredVersionsKey = 'ignored_update_versions';
+  static const String _downloadFileName = 'xplay-update.apk';
 
-  /// 检查是否有新版本可用
-  static Future<UpdateInfo?> checkForUpdate() async {
+  /// 拉取轻量更新清单。时间戳和 no-cache 用于绕过 GitHub/CDN 的旧缓存。
+  static Future<UpdateInfo?> checkForUpdate({
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
     try {
-      final response = await http.get(
-        Uri.parse(_apiUrl),
-        headers: {'Accept': 'application/vnd.github.v3+json'},
+      final manifestUri = Uri.parse(updateManifestUrl).replace(
+        queryParameters: {
+          'ts': DateTime.now().millisecondsSinceEpoch.toString()
+        },
       );
+      final response = await http.get(
+        manifestUri,
+        headers: const {
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+        },
+      ).timeout(timeout);
 
-      if (response.statusCode != 200) {
-        return null;
-      }
+      if (response.statusCode != HttpStatus.ok) return null;
 
-      final data = json.decode(response.body);
-      final tagName = data['tag_name'] ?? '';
-      final version = tagName.replaceFirst('v', '');
-      
+      final rawData = jsonDecode(utf8.decode(response.bodyBytes));
+      if (rawData is! Map<String, dynamic>) return null;
+
+      final version = _cleanVersion(rawData['version']?.toString() ?? '');
       if (version.isEmpty) return null;
 
       final packageInfo = await PackageInfo.fromPlatform();
-      final currentVersion = packageInfo.version;
+      final currentVersion = _cleanVersion(packageInfo.version);
+      if (!_isNewerVersion(version, currentVersion)) {
+        await _markChecked();
+        return null;
+      }
+      if (await isVersionIgnored(version)) {
+        await _markChecked();
+        return null;
+      }
 
-      // 比较版本号
-      if (_isNewerVersion(version, currentVersion)) {
-        final assets = data['assets'] ?? [];
-        String? apkUrl;
-        
-        for (final asset in assets) {
-          final name = asset['name'] ?? '';
-          if (name.endsWith('.apk')) {
-            apkUrl = asset['browser_download_url'];
-            break;
-          }
-        }
+      final urls = _parseDownloadUrls(rawData, version);
+      await _markChecked();
+      return UpdateInfo(
+        version: version,
+        releaseNotes: rawData['notes']?.toString().trim().isNotEmpty == true
+            ? rawData['notes'].toString()
+            : '暂无更新说明',
+        apkUrls: urls,
+        publishedAt: rawData['publishedAt']?.toString() ?? '',
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 
-        return UpdateInfo(
-          version: version,
-          releaseNotes: data['body'] ?? '暂无更新说明',
-          apkUrl: apkUrl,
-          publishedAt: data['published_at'] ?? '',
+  /// 按配置顺序尝试下载 APK，并报告 0.0 到 1.0 的进度。
+  static Future<File> downloadApk(
+    UpdateInfo updateInfo, {
+    void Function(int received, int total)? onProgress,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    if (updateInfo.apkUrls.isEmpty) {
+      throw const UpdateDownloadException('更新清单没有可用的 APK 地址');
+    }
+
+    final directory = await getTemporaryDirectory();
+    final target = File('${directory.path}/$_downloadFileName');
+    Object? lastError;
+
+    for (var index = 0; index < updateInfo.apkUrls.length; index++) {
+      final url = updateInfo.apkUrls[index];
+      try {
+        await _downloadFromUrl(
+          url,
+          target,
+          onProgress: onProgress,
+          timeout: timeout,
         );
+        return target;
+      } catch (error) {
+        lastError = error;
+        if (await target.exists()) {
+          await target.delete();
+        }
+        if (index < updateInfo.apkUrls.length - 1) {
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        }
       }
-
-      // 更新最后检查时间
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_lastCheckedKey, DateTime.now().millisecondsSinceEpoch);
-
-      return null;
-    } catch (e) {
-      return null;
     }
+
+    throw UpdateDownloadException('所有下载源均失败：$lastError');
   }
 
-  /// 比较版本号，判断 newVersion 是否比 currentVersion 新
-  static bool _isNewerVersion(String newVersion, String currentVersion) {
+  static Future<void> _downloadFromUrl(
+    String url,
+    File target, {
+    required void Function(int received, int total)? onProgress,
+    required Duration timeout,
+  }) async {
+    final client = http.Client();
     try {
-      final newParts = newVersion.split('.').map(int.parse).toList();
-      final currentParts = currentVersion.split('.').map(int.parse).toList();
-
-      // 确保两个版本号有相同的长度
-      while (newParts.length < currentParts.length) {
-        newParts.add(0);
-      }
-      while (currentParts.length < newParts.length) {
-        currentParts.add(0);
+      final request = http.Request('GET', Uri.parse(url));
+      request.headers['Cache-Control'] = 'no-cache';
+      final streamed = await client.send(request).timeout(timeout);
+      if (streamed.statusCode != HttpStatus.ok) {
+        throw UpdateDownloadException('下载源返回 HTTP ${streamed.statusCode}');
       }
 
-      for (var i = 0; i < newParts.length; i++) {
-        if (newParts[i] > currentParts[i]) return true;
-        if (newParts[i] < currentParts[i]) return false;
+      final sink = target.openWrite();
+      var received = 0;
+      try {
+        await for (final chunk in streamed.stream) {
+          received += chunk.length;
+          sink.add(chunk);
+          onProgress?.call(received, streamed.contentLength ?? -1);
+        }
+        await sink.flush();
+      } finally {
+        await sink.close();
       }
 
-      return false;
-    } catch (e) {
-      return false;
+      if (received == 0) {
+        throw const UpdateDownloadException('下载内容为空');
+      }
+    } finally {
+      client.close();
+      if (await target.exists()) {
+        final length = await target.length();
+        if (length == 0) await target.delete();
+      }
     }
   }
 
-  /// 标记某个版本为已忽略
+  static List<String> _parseDownloadUrls(
+    Map<String, dynamic> data,
+    String version,
+  ) {
+    final urls = <String>[];
+    final configuredUrls = data['apkUrls'];
+    if (configuredUrls is List) {
+      for (final value in configuredUrls) {
+        final url = value.toString().trim();
+        if (url.isNotEmpty && !urls.contains(url)) urls.add(url);
+      }
+    }
+
+    final apkUrl = data['apkUrl']?.toString().trim() ?? '';
+    if (apkUrl.isNotEmpty && !urls.contains(apkUrl)) urls.add(apkUrl);
+
+    // 清单没有地址时，按约定补上 Release asset 地址。
+    if (urls.isEmpty) {
+      final tag = 'v$version';
+      urls.add(
+        'https://github.com/wacilimonster-source/xplay/releases/download/$tag/app-release.apk',
+      );
+    }
+    return urls;
+  }
+
+  static String _cleanVersion(String version) {
+    return version.trim().replaceFirst(RegExp(r'^[vV]'), '');
+  }
+
+  static bool _isNewerVersion(String newVersion, String currentVersion) {
+    final newParts = _versionParts(newVersion);
+    final currentParts = _versionParts(currentVersion);
+    final length = newParts.length > currentParts.length
+        ? newParts.length
+        : currentParts.length;
+
+    for (var i = 0; i < length; i++) {
+      final newPart = i < newParts.length ? newParts[i] : 0;
+      final currentPart = i < currentParts.length ? currentParts[i] : 0;
+      if (newPart != currentPart) return newPart > currentPart;
+    }
+    return false;
+  }
+
+  static List<int> _versionParts(String version) {
+    return version
+        .split('.')
+        .map(
+            (part) => int.tryParse(part.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0)
+        .toList();
+  }
+
+  static Future<void> _markChecked() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_lastCheckedKey, DateTime.now().millisecondsSinceEpoch);
+  }
+
   static Future<void> ignoreVersion(String version) async {
     final prefs = await SharedPreferences.getInstance();
-    final ignored = prefs.getStringList(_ignoredVersionsKey) ?? [];
+    final ignored = prefs.getStringList(_ignoredVersionsKey) ?? <String>[];
     if (!ignored.contains(version)) {
       ignored.add(version);
       await prefs.setStringList(_ignoredVersionsKey, ignored);
     }
   }
 
-  /// 检查版本是否已被忽略
   static Future<bool> isVersionIgnored(String version) async {
     final prefs = await SharedPreferences.getInstance();
-    final ignored = prefs.getStringList(_ignoredVersionsKey) ?? [];
+    final ignored = prefs.getStringList(_ignoredVersionsKey) ?? <String>[];
     return ignored.contains(version);
   }
 
-  /// 获取最后检查时间
   static Future<DateTime?> getLastCheckedTime() async {
     final prefs = await SharedPreferences.getInstance();
     final timestamp = prefs.getInt(_lastCheckedKey);
-    if (timestamp != null) {
-      return DateTime.fromMillisecondsSinceEpoch(timestamp);
-    }
-    return null;
+    return timestamp == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(timestamp);
   }
 }
 
 class UpdateInfo {
   final String version;
   final String releaseNotes;
-  final String? apkUrl;
+  final List<String> apkUrls;
   final String publishedAt;
 
-  UpdateInfo({
+  const UpdateInfo({
     required this.version,
     required this.releaseNotes,
-    this.apkUrl,
+    required this.apkUrls,
     required this.publishedAt,
   });
 
+  String? get apkUrl => apkUrls.isEmpty ? null : apkUrls.first;
+
   @override
   String toString() {
-    return 'UpdateInfo(version: $version, hasApk: ${apkUrl != null})';
+    return 'UpdateInfo(version: $version, urls: ${apkUrls.length})';
   }
+}
+
+class UpdateDownloadException implements Exception {
+  final String message;
+
+  const UpdateDownloadException(this.message);
+
+  @override
+  String toString() => message;
 }

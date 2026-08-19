@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'settings_provider.dart';
 import '../../core/client/account_provider.dart';
 import '../../core/database/repository.dart';
 import '../../core/utils/media_cache_manager.dart';
 import '../../core/services/update_service.dart';
+import 'update_dialog.dart';
 import '../feed/feed_provider.dart';
 import '../subscriptions/subscription_import_screen.dart';
 import 'log_viewer_screen.dart';
@@ -169,79 +169,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _checkForUpdate(BuildContext context) async {
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(),
-      ),
+      builder: (_) => const Center(child: CircularProgressIndicator()),
     );
 
-    try {
-      final updateInfo = await UpdateService.checkForUpdate();
-      if (!context.mounted) return;
+    final updateInfo = await UpdateService.checkForUpdate();
+    if (!context.mounted) return;
+    Navigator.of(context).pop();
 
-      Navigator.of(context).pop(); // 关闭加载对话框
-
-      if (updateInfo == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('当前已是最新版本'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        return;
-      }
-
-      // 显示更新对话框
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('发现新版本 v${updateInfo.version}'),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('发布时间：${updateInfo.publishedAt.substring(0, 10)}'),
-                const SizedBox(height: 12),
-                const Text('更新说明：', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                Text(updateInfo.releaseNotes),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('稍后'),
-            ),
-            if (updateInfo.apkUrl != null)
-              TextButton(
-                onPressed: () async {
-                  final url = Uri.parse(updateInfo.apkUrl!);
-                  if (await canLaunchUrl(url)) {
-                    await launchUrl(url, mode: LaunchMode.externalApplication);
-                  }
-                  if (context.mounted) {
-                    Navigator.of(context).pop();
-                  }
-                },
-                child: const Text('下载更新'),
-              ),
-          ],
-        ),
-      );
-    } catch (e) {
-      if (!context.mounted) return;
-      Navigator.of(context).pop(); // 关闭加载对话框
+    if (updateInfo == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('检查更新失败：$e'),
-          backgroundColor: Colors.red,
+        const SnackBar(
+          content: Text('当前已是最新版本'),
+          backgroundColor: Colors.green,
         ),
       );
+      return;
     }
+
+    await showUpdateDialog(context, updateInfo);
+  }
+
+  static Future<void> showUpdateDialog(
+    BuildContext context,
+    UpdateInfo updateInfo,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => UpdateDialog(updateInfo: updateInfo),
+    );
   }
 }
 
@@ -348,8 +306,7 @@ class PlaybackSettingsPage extends ConsumerWidget {
         children: [
           ListTile(
             title: const Text('内容策略'),
-            subtitle:
-                Text('当前：${_getFeedSortLabel(settings.fetchStrategy)}'),
+            subtitle: Text('当前：${_getFeedSortLabel(settings.fetchStrategy)}'),
             trailing: DropdownButton<FeedSort>(
               value: settings.fetchStrategy,
               items: FeedSort.values
@@ -371,8 +328,7 @@ class PlaybackSettingsPage extends ConsumerWidget {
           ),
           ListTile(
             title: const Text('视频播放结束后'),
-            subtitle:
-                Text('操作：${settings.videoEndAction.name.toUpperCase()}'),
+            subtitle: Text('操作：${settings.videoEndAction.name.toUpperCase()}'),
             trailing: DropdownButton<VideoEndAction>(
               value: settings.videoEndAction,
               items: VideoEndAction.values
@@ -398,8 +354,7 @@ class PlaybackSettingsPage extends ConsumerWidget {
           const Divider(),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text('内容过滤',
-                style: TextStyle(fontWeight: FontWeight.bold)),
+            child: Text('内容过滤', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -472,8 +427,7 @@ class DiscoverySettingsPage extends ConsumerWidget {
           ),
           SwitchListTile(
             title: const Text('未见创作者加权'),
-            subtitle:
-                const Text('展示更多你很少看到的创作者内容'),
+            subtitle: const Text('展示更多你很少看到的创作者内容'),
             value: settings.unseenSubscriptionBoost,
             onChanged: (val) =>
                 notifier.updateDiscoveryParam(unseenSubscriptionBoost: val),
@@ -617,8 +571,7 @@ class StorageSettingsPage extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.cleaning_services, color: Colors.orange),
-            title: const Text('清除媒体缓存',
-                style: TextStyle(color: Colors.orange)),
+            title: const Text('清除媒体缓存', style: TextStyle(color: Colors.orange)),
             onTap: () async {
               await CustomMediaCacheManager.clearCache();
               onRefresh();
@@ -670,8 +623,7 @@ class SubscriptionSettingsPage extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.delete_sweep, color: Colors.orange),
-            title: const Text('清空所有订阅',
-                style: TextStyle(color: Colors.orange)),
+            title: const Text('清空所有订阅', style: TextStyle(color: Colors.orange)),
             onTap: () async {
               await Repository.clearSubscriptions();
               ref.invalidate(feedNotifierProvider);
