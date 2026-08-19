@@ -43,6 +43,27 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
   bool _isAutoFullscreenDone = false;
   StreamSubscription? _errorSubscription;
   StreamSubscription? _completedSubscription;
+  PlayerInstance? _subscribedInstance;
+
+  void _clearSubscriptions() {
+    _errorSubscription?.cancel();
+    _completedSubscription?.cancel();
+    _errorSubscription = null;
+    _completedSubscription = null;
+    _subscribedInstance = null;
+  }
+
+  void _bindSubscriptions(PlayerInstance instance) {
+    if (identical(_subscribedInstance, instance)) return;
+    _errorSubscription?.cancel();
+    _completedSubscription?.cancel();
+    _errorSubscription = instance.player.stream.error.listen(_handleError);
+    _completedSubscription =
+        instance.player.stream.completed.listen((completed) {
+      if (completed) _handleCompleted();
+    });
+    _subscribedInstance = instance;
+  }
 
   @override
   void didUpdateWidget(TiktokMediaContainer oldWidget) {
@@ -163,15 +184,13 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
     final instance = pool[widget.tweet.id];
 
     if (instance == null) {
+      _clearSubscriptions();
       return const Center(child: CircularProgressIndicator());
     }
 
-    // Subscribe to events if not already doing so
-    _errorSubscription ??= instance.player.stream.error.listen(_handleError);
-    _completedSubscription ??=
-        instance.player.stream.completed.listen((completed) {
-      if (completed) _handleCompleted();
-    });
+    // Re-bind event subscriptions whenever the pool hands out a new instance
+    // for this tweet id (the old one was disposed by the pool).
+    _bindSubscriptions(instance);
 
     if (widget.isVisible) {
       instance.player.play();

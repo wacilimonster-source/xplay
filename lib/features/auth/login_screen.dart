@@ -5,10 +5,12 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_cookie_manager_plus/webview_cookie_manager_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/client/account_provider.dart';
+import '../../core/client/query_id_resolver.dart';
 import '../../core/client/x_api_constants.dart';
 import '../../core/database/entities.dart';
 import '../../core/database/repository.dart';
 import '../../core/client/twitter_client.dart';
+import '../../core/utils/app_logger.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   static const homeUrl = 'https://x.com/home';
@@ -48,8 +50,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
               final cookies =
                   await _cookieManager.getCookies(LoginScreen.homeUrl);
-              final ct0Cookie = cookies.firstWhere((c) => c.name == 'ct0',
-                  orElse: () => throw Exception('ct0 not found'));
+              final ct0Cookie =
+                  cookies.where((c) => c.name == 'ct0').firstOrNull;
+              if (ct0Cookie == null) {
+                _userFound = false;
+                AppLogger.log('XFLOW: Login failed: ct0 cookie not found');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('登录态不完整，请重试')));
+                }
+                return;
+              }
 
               final authHeader = {
                 "Cookie": cookies
@@ -61,31 +72,53 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 "x-csrf-token": ct0Cookie.value,
               };
 
-              // Fetch rest_id using screenName
-              final profileUri = Uri.https('x.com',
-                  '/i/api/graphql/oUZZZ8Oddwxs8Cd3iW3UEA/UserByScreenName', {
-                'variables': jsonEncode({
-                  'screen_name': screenName,
-                  'withHighlightedLabel': true,
-                  'withSafetyModeUserFields': true,
-                  'withSuperFollowsUserFields': true
-                }),
-                'features': jsonEncode(TwitterClient.defaultFeatures)
-              });
-
-              final profileRes = await http.get(profileUri, headers: {
-                ...authHeader,
-                'User-Agent': xMobileUserAgent,
-                'Content-Type': 'application/json',
-              });
-
+              // Fetch rest_id using screenName, retrying across candidate
+              // query IDs so an expired ID does not leave restId empty.
               String restId = '';
-              if (profileRes.statusCode == 200) {
-                final profileData = json.decode(profileRes.body);
-                final userResult = profileData['data']?['user']?['result'];
-                if (userResult != null) {
-                  restId = userResult['rest_id'] ?? '';
+              final attemptPaths =
+                  QueryIdResolver.candidatePaths('UserByScreenName');
+              for (final path in attemptPaths) {
+                final profileUri = Uri.https('x.com', '/i/api$path', {
+                  'variables': jsonEncode({
+                    'screen_name': screenName,
+                    'withHighlightedLabel': true,
+                    'withSafetyModeUserFields': true,
+                    'withSuperFollowsUserFields': true
+                  }),
+                  'features': jsonEncode(TwitterClient.defaultFeatures)
+                });
+
+                try {
+                  final profileRes = await http.get(profileUri, headers: {
+                    ...authHeader,
+                    'User-Agent': xMobileUserAgent,
+                    'Content-Type': 'application/json',
+                  });
+                  if (profileRes.statusCode != 200) {
+                    AppLogger.log(
+                        'XFLOW: Login profile fetch status ${profileRes.statusCode} for $path');
+                    continue;
+                  }
+                  final profileData = json.decode(profileRes.body);
+                  final userResult = profileData['data']?['user']?['result'];
+                  if (userResult != null) {
+                    restId = userResult['rest_id'] ?? '';
+                  }
+                  if (restId.isNotEmpty) break;
+                } catch (e) {
+                  AppLogger.log('XFLOW: Login profile fetch error $path: $e');
                 }
+              }
+
+              if (restId.isEmpty) {
+                _userFound = false;
+                AppLogger.log(
+                    'XFLOW: Login failed: could not resolve rest_id for @$screenName');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('登录失败，无法获取账号信息，请重试')));
+                }
+                return;
               }
 
               final account = Account(

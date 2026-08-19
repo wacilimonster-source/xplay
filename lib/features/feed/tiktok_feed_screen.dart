@@ -166,7 +166,11 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
           }
           return _buildNoItemsState();
         }
-        _managePool();
+        // Defer pool management past the build phase to avoid disposing
+        // native players / mutating provider state during layout.
+        Future.microtask(() {
+          if (mounted) _managePool();
+        });
         return Stack(
           children: [
             PageView.builder(
@@ -330,7 +334,11 @@ class DiscoveryDebugOverlay extends StatelessWidget {
                 children: [
                   _debugLine('类型', tweet.isVideo ? '视频' : '图片'),
                   _debugLine('来源', tweet.source ?? '未知'),
-                  _debugLine('编号', tweet.id.substring(tweet.id.length - 8)),
+                  _debugLine(
+                    '编号',
+                    tweet.id.length >= 8
+                        ? tweet.id.substring(tweet.id.length - 8)
+                        : tweet.id),
                   _debugLine('媒体', '${tweet.mediaUrls.length} 个地址'),
                   _debugLine('已看', '${stats.$1} 次'),
                   _debugLine('账号已看', '${stats.$2} 次'),

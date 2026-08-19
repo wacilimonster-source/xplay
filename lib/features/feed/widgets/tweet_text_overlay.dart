@@ -225,7 +225,7 @@ class _TweetTextOverlayState extends ConsumerState<TweetTextOverlay> {
             onPressed: () {
               ref.read(subscriptionListProvider.notifier).toggleSubscription(
                     Subscription(
-                      id: widget.tweet.userHandle,
+                      id: widget.tweet.userHandle.replaceFirst('@', ''),
                       screenName: widget.tweet.userHandle.replaceFirst('@', ''),
                       name: widget.tweet.userHandle,
                       profileImageUrl: widget.tweet.userAvatarUrl,

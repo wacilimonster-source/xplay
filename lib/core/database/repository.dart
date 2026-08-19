@@ -548,12 +548,12 @@ class Repository {
   static Future<void> pruneCachedMedia({int threshold = 5000}) async {
     final db = await database;
 
-    // 1. Delete by age: Remove anything older than 7 days
+    // 1. Delete by age: Remove anything older than 7 days (or missing a date)
     final sevenDaysAgo =
         DateTime.now().subtract(const Duration(days: 7)).millisecondsSinceEpoch;
     await db.delete(
       tableCachedMedia,
-      where: 'created_at < ?',
+      where: 'created_at < ? OR created_at IS NULL',
       whereArgs: [sevenDaysAgo],
     );
 

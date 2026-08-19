@@ -18,21 +18,6 @@ class TweetResponse {
 }
 
 class TwitterClient {
-  static const String graphqlSearchTimelineUriPath =
-      '/graphql/BGd0T_j7oVwlW5U79tO_0A/SearchTimeline';
-  static const String _legacyGraphqlSearchTimelineUriPath =
-      '/graphql/6AAys3t42mosm_yTI_QENg/SearchTimeline';
-  static const String graphqlUserByScreenNameUriPath =
-      '/graphql/Gb-d6r0vxPOADdG62OEBpQ/UserByScreenName';
-  static const String graphqlUserTweetsUriPath =
-      '/graphql/eoJ5zbv51Z_KVl81v9PmLQ/UserTweets';
-  static const String graphqlFavoriteTweetUriPath =
-      '/graphql/lI07N6Otwv1PhnEgXILM7A/FavoriteTweet';
-  static const String graphqlUnfavoriteTweetUriPath =
-      '/graphql/ZYKSe-w7KEslx3JhSIk5LA/UnfavoriteTweet';
-  static const String graphqlTweetDetailUriPath =
-      '/graphql/559hs_YZNV4IgA3Z6zIIuw/TweetDetail';
-
   // Rate limiting prevention
   static bool _isRequestInProgress = false;
   static DateTime? _rateLimitResetTime;
@@ -247,9 +232,6 @@ class TwitterClient {
         'Timeline result [$label]: tweets=${response.tweets.length} cursorTop=${response.cursorTop ?? 'null'} cursorBottom=${response.cursorBottom ?? 'null'}$contextText');
   }
 
-  static const String graphqlUserByScreenNameNewUriPath =
-      '/graphql/Gb-d6r0vxPOADdG62OEBpQ/UserByScreenName';
-
   static const Map<String, dynamic> newProfileFeatures = {
     'hidden_profile_subscriptions_enabled': true,
     'profile_label_improvements_pcf_label_in_post_enabled': true,
@@ -274,95 +256,61 @@ class TwitterClient {
   Future<Subscription?> fetchProfile(String screenName) async {
     if (screenName.startsWith('@')) screenName = screenName.substring(1);
 
-    // 1. Attempt using the NEW query ID (IGgvgiOx4QZndDHuD3x9TQ)
-    try {
-      AppLogger.log(
-          'Attempting to fetch profile using new query ID (IGgvgiOx4QZndDHuD3x9TQ) for @$screenName');
-      final newUri =
-          Uri.https('x.com', '/i/api${QueryIdResolver.pathFor('UserByScreenName')}', {
-        'variables': jsonEncode({
-          'screen_name': screenName,
-          'withHighlightedLabel': true,
-          'withSafetyModeUserFields': true,
-          'withSuperFollowsUserFields': true
-        }),
-        'features': jsonEncode({...defaultFeatures, ...newProfileFeatures}),
-        'fieldToggles': jsonEncode(newProfileFieldToggles),
-      });
+    final attemptPaths = QueryIdResolver.candidatePaths('UserByScreenName');
 
-      final response = await TwitterAccount.fetch(newUri);
-      if (response.statusCode == 200) {
+    for (var i = 0; i < attemptPaths.length; i++) {
+      final path = attemptPaths[i];
+      try {
+        AppLogger.log(
+            'Attempting to fetch profile using query ID ($path) for @$screenName');
+        final uri = Uri.https('x.com', '/i/api$path', {
+          'variables': jsonEncode({
+            'screen_name': screenName,
+            'withHighlightedLabel': true,
+            'withSafetyModeUserFields': true,
+            'withSuperFollowsUserFields': true
+          }),
+          'features': jsonEncode({...defaultFeatures, ...newProfileFeatures}),
+          'fieldToggles': jsonEncode(newProfileFieldToggles),
+        });
+
+        final response = await TwitterAccount.fetch(uri);
+        if (response.statusCode == 404 && i < attemptPaths.length - 1) {
+          AppLogger.log(
+              'Profile query returned 404 for $path. Retrying with alternate operation id.');
+          continue;
+        }
+        if (response.statusCode != 200) {
+          AppLogger.log(
+              'Profile query returned status ${response.statusCode}. Attempting next candidate...');
+          continue;
+        }
+
         final data = json.decode(response.body);
         final userRes = data['data']?['user']?['result'];
-        if (userRes != null) {
-          final legacy = userRes['legacy'];
-          AppLogger.log(
-              'Successfully fetched profile using NEW query for @$screenName');
-          return Subscription(
-            id: userRes['rest_id'],
-            screenName: legacy?['screen_name'] ?? screenName,
-            name: legacy?['name'] ?? screenName,
-            profileImageUrl: userRes['avatar']?['image_url'] ??
-                legacy?['profile_image_url_https'],
-            description: legacy?['description'],
-            followersCount: legacy?['followers_count'],
-            followingCount: legacy?['friends_count'],
-          );
+        if (userRes == null) {
+          AppLogger.log('Profile query returned status 200 but no user result');
+          continue;
         }
+
+        final legacy = userRes['legacy'];
+        AppLogger.log('Successfully fetched profile for @$screenName');
+        return Subscription(
+          id: userRes['rest_id'],
+          screenName: legacy?['screen_name'] ?? screenName,
+          name: legacy?['name'] ?? screenName,
+          profileImageUrl: userRes['avatar']?['image_url'] ??
+              legacy?['profile_image_url_https'],
+          description: legacy?['description'],
+          followersCount: legacy?['followers_count'],
+          followingCount: legacy?['friends_count'],
+        );
+      } catch (e) {
+        AppLogger.log('Profile fetch failed for @$screenName with $path: $e');
       }
-      AppLogger.log(
-          'New query returned status ${response.statusCode} or empty data. Attempting fallback...');
-    } catch (e) {
-      AppLogger.log(
-          'New query failed for @$screenName: $e. Attempting fallback...');
     }
 
-    // 2. Fallback to the OLD query ID (oUZZZ8Oddwxs8Cd3iW3UEA)
-    try {
-      AppLogger.log(
-          'Attempting fallback fetch using old query ID (oUZZZ8Oddwxs8Cd3iW3UEA) for @$screenName');
-      final oldUri = Uri.https(
-          'x.com', '/i/api${QueryIdResolver.pathFor('UserByScreenName', 'UserByScreenName')}', {
-        'variables': jsonEncode({
-          'screen_name': screenName,
-          'withHighlightedLabel': true,
-          'withSafetyModeUserFields': true,
-          'withSuperFollowsUserFields': true
-        }),
-        'features': jsonEncode(defaultFeatures)
-      });
-
-      final response = await TwitterAccount.fetch(oldUri);
-      if (response.statusCode != 200) {
-        AppLogger.log(
-            'Fallback query also failed with status ${response.statusCode}');
-        return null;
-      }
-
-      final data = json.decode(response.body);
-      final userRes = data['data']?['user']?['result'];
-      if (userRes == null) {
-        AppLogger.log('Fallback query returned status 200 but no user result');
-        return null;
-      }
-
-      final legacy = userRes['legacy'];
-      AppLogger.log(
-          'Successfully fetched profile using FALLBACK query for @$screenName');
-      return Subscription(
-        id: userRes['rest_id'],
-        screenName: legacy?['screen_name'] ?? screenName,
-        name: legacy?['name'] ?? screenName,
-        profileImageUrl: userRes['avatar']?['image_url'] ??
-            legacy?['profile_image_url_https'],
-        description: legacy?['description'],
-        followersCount: legacy?['followers_count'],
-        followingCount: legacy?['friends_count'],
-      );
-    } catch (e) {
-      AppLogger.log('Error in fallback profile fetch: $e');
-      return null;
-    }
+    return null;
   }
 
   Future<TweetResponse> fetchUserTweets(String screenName,
@@ -467,17 +415,17 @@ class TwitterClient {
               entry["content"]?["itemContent"]?["user_results"]?["result"];
           if (userResult == null) continue;
 
-          final legacy = userResult["core"]?["screen_name"] != null
-              ? userResult["core"]
-              : userResult["legacy"];
+          final legacy = userResult["legacy"] ??
+            userResult["core"]?["user_results"]?["result"]?["legacy"];
           if (legacy == null) continue;
 
           allSubs.add(Subscription(
             id: userResult["rest_id"],
             screenName: legacy["screen_name"],
             name: legacy["name"] ?? '',
-            profileImageUrl: userResult["avatar"]?["image_url"] ??
-                legacy["profile_image_url_https"],
+            profileImageUrl:
+                legacy["profile_image_url_https"] ??
+                    userResult["avatar"]?["image_url"],
           ));
           newFound++;
         }
@@ -537,9 +485,6 @@ class TwitterClient {
       final combinedFilter = "(${filterQueries.join(' OR ')})";
       finalQuery =
           finalQuery.isEmpty ? combinedFilter : "$finalQuery $combinedFilter";
-    } else if (query == null) {
-      // Default "All" case: empty query means no extra filters
-      finalQuery = "";
     }
 
     if (sort == FeedSort.popular) {
