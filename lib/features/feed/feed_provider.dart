@@ -207,6 +207,8 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
           includeNativeRetweets: settings.includeNativeRetweets,
           useChunkedSubscriptions: settings.useChunkedSubscriptions,
           minFaves: settings.minFavesFilter,
+          maxQueryLength: settings.maxQueryLength,
+          timeoutSeconds: settings.apiTimeoutSeconds,
         );
       }
 

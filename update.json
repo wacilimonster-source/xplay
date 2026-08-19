@@ -1,9 +1,9 @@
 {
-  "version": "0.01.4",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.4/app-release.apk",
+  "version": "0.01.5",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.5/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.4/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.5/app-release.apk"
   ],
-  "notes": "修复用户媒体与订阅媒体无法加载：实现 x-xp-forwarded-for 头并新增查询 ID 候选重试。",
+  "notes": "非全屏进度条可拖动、分享功能上线、自动播放/缓存上限生效、断点续播、订阅主键统一、播放器池上限。",
   "publishedAt": "2026-08-20"
 }

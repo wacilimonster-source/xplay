@@ -1,7 +1,7 @@
 name: xplay
 description: X/Twitter 媒体播放器，支持 TikTok 风格浏览
 publish_to: 'none'
-version: 0.01.4
+version: 0.01.5
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -31,6 +31,7 @@ dependencies:
   path: ^1.9.1
   flutter_svg: ^2.3.0
   url_launcher: ^6.3.1
+  share_plus: ^12.0.1
 
 dev_dependencies:
   flutter_test:

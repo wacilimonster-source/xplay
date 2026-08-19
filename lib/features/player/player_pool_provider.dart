@@ -17,6 +17,10 @@ class PlayerInstance {
 }
 
 class PlayerPoolNotifier extends Notifier<Map<String, PlayerInstance>> {
+  /// Hard cap on live player instances. The pool is global and outlives feed
+  /// screens, so keep a ceiling to bound native memory use.
+  static const int maxPoolSize = 12;
+
   @override
   Map<String, PlayerInstance> build() {
     ref.onDispose(() {
@@ -39,7 +43,14 @@ class PlayerPoolNotifier extends Notifier<Map<String, PlayerInstance>> {
     );
     player.open(Media(url), play: false); // Pre-load but don't play
 
-    state = {...state, id: PlayerInstance(player, controller)};
+    var newState = {...state, id: PlayerInstance(player, controller)};
+    if (newState.length > maxPoolSize) {
+      // Map keeps insertion order: evict the oldest instance.
+      final oldestId = newState.keys.first;
+      newState[oldestId]?.dispose();
+      newState = Map.from(newState)..remove(oldestId);
+    }
+    state = newState;
   }
 
   void cleanupExcept(Set<String> activeIds) {

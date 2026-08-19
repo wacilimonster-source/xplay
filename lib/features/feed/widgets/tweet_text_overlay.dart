@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../core/models/tweet.dart';
 import '../../../core/navigation/navigation_provider.dart';
 import '../../../core/utils/app_logger.dart';
@@ -101,13 +102,33 @@ class _TweetTextOverlayState extends ConsumerState<TweetTextOverlay> {
         _ActionButton(
           icon: Icons.share_outlined,
           label: "分享",
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text("分享功能即将推出"),
-                duration: Duration(seconds: 1),
-              ),
-            );
+          onTap: () async {
+            final handle =
+                widget.tweet.userHandle.replaceFirst('@', '');
+            final url =
+                'https://x.com/$handle/status/${widget.tweet.id}';
+            final text = widget.tweet.text.isEmpty
+                ? url
+                : '${widget.tweet.text}\n\n$url';
+            try {
+              await SharePlus.instance.share(
+                ShareParams(
+                  text: text,
+                  subject: 'XPlay 分享',
+                  title: 'XPlay 分享',
+                ),
+              );
+            } catch (e) {
+              AppLogger.log('XFLOW: Share failed: $e');
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('分享失败:${e.toString()}'),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+            }
           },
         ),
         if (widget.onFullscreen != null && widget.tweet.isVideo) ...[

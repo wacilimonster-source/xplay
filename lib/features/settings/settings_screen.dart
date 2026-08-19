@@ -29,7 +29,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _loadStats() async {
     final count = await Repository.getCachedMediaCount();
-    final sizeBytes = await CustomMediaCacheManager.getCacheSize();
+    final sizeBytes = await CustomMediaCacheManager.enforceLimit(
+        ref.read(settingsProvider).mediaCacheSizeMB);
     if (mounted) {
       setState(() {
         _metadataCount = count;
@@ -590,7 +591,11 @@ class StorageSettingsPage extends ConsumerWidget {
             max: 2000,
             divisions: 19,
             label: '${settings.mediaCacheSizeMB} MB',
-            onChanged: (v) => notifier.updateMediaCacheSize(v.round()),
+            onChanged: (v) {
+              notifier.updateMediaCacheSize(v.round());
+              CustomMediaCacheManager.enforceLimit(v.round());
+              onRefresh();
+            },
           ),
           ListTile(
             leading: const Icon(Icons.cleaning_services, color: Colors.orange),

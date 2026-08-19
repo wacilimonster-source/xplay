@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/models/tweet.dart';
 import '../../../core/utils/media_cache_manager.dart';
@@ -43,13 +44,19 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
   bool _isAutoFullscreenDone = false;
   StreamSubscription? _errorSubscription;
   StreamSubscription? _completedSubscription;
+  StreamSubscription? _durationSubscription;
   PlayerInstance? _subscribedInstance;
+  bool _resumeRestored = false;
+
+  static const String _resumePrefix = 'xplay_resume_pos_';
 
   void _clearSubscriptions() {
     _errorSubscription?.cancel();
     _completedSubscription?.cancel();
+    _durationSubscription?.cancel();
     _errorSubscription = null;
     _completedSubscription = null;
+    _durationSubscription = null;
     _subscribedInstance = null;
   }
 
@@ -57,12 +64,55 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
     if (identical(_subscribedInstance, instance)) return;
     _errorSubscription?.cancel();
     _completedSubscription?.cancel();
+    _durationSubscription?.cancel();
     _errorSubscription = instance.player.stream.error.listen(_handleError);
     _completedSubscription =
         instance.player.stream.completed.listen((completed) {
       if (completed) _handleCompleted();
     });
+    _resumeRestored = false;
+    _durationSubscription = instance.player.stream.duration.listen((d) {
+      if (_resumeRestored || d <= Duration.zero) return;
+      _resumeRestored = true;
+      _restorePosition(instance);
+    });
     _subscribedInstance = instance;
+  }
+
+  /// Persists the current playback position so the video can resume later.
+  void _savePosition(PlayerInstance instance) {
+    final pos = instance.player.state.position;
+    final dur = instance.player.state.duration;
+    SharedPreferences.getInstance().then((prefs) {
+      if (dur > Duration.zero &&
+          pos > const Duration(seconds: 5) &&
+          dur - pos > const Duration(seconds: 3)) {
+        prefs.setInt(
+            '$_resumePrefix${widget.tweet.id}', pos.inMilliseconds);
+      } else {
+        prefs.remove('$_resumePrefix${widget.tweet.id}');
+      }
+    });
+  }
+
+  /// Seeks to the saved position (if any) and clears it.
+  Future<void> _restorePosition(PlayerInstance instance) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getInt('$_resumePrefix${widget.tweet.id}');
+      final dur = instance.player.state.duration;
+      if (saved != null &&
+          saved > 0 &&
+          dur > Duration.zero &&
+          saved < dur.inMilliseconds - 3000) {
+        AppLogger.log(
+            'XFLOW: Resuming ${widget.tweet.id} at ${Duration(milliseconds: saved)}');
+        await instance.player.seek(Duration(milliseconds: saved));
+      }
+      await prefs.remove('$_resumePrefix${widget.tweet.id}');
+    } catch (e) {
+      AppLogger.log('XFLOW: Resume failed: $e');
+    }
   }
 
   @override
@@ -75,8 +125,12 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
 
   @override
   void dispose() {
+    if (_subscribedInstance != null) {
+      _savePosition(_subscribedInstance!);
+    }
     _errorSubscription?.cancel();
     _completedSubscription?.cancel();
+    _durationSubscription?.cancel();
     super.dispose();
   }
 
@@ -188,17 +242,20 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final settings = ref.watch(settingsProvider);
+
     // Re-bind event subscriptions whenever the pool hands out a new instance
     // for this tweet id (the old one was disposed by the pool).
     _bindSubscriptions(instance);
 
     if (widget.isVisible) {
-      instance.player.play();
+      if (settings.autoplay) {
+        instance.player.play();
+      }
     } else {
+      _savePosition(instance);
       instance.player.pause();
     }
-
-    final settings = ref.watch(settingsProvider);
     return PopScope(
       canPop: true,
       onPopInvokedWithResult: (didPop, result) async {
@@ -414,9 +471,7 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
                 bottom: 0,
                 left: 0,
                 right: 0,
-                child: IgnorePointer(
-                  child: _buildProgressBar(instance),
-                ),
+                child: _buildProgressBar(instance),
               ),
             ],
           );
@@ -436,14 +491,81 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
 
         final progress = position.inMilliseconds / duration.inMilliseconds;
 
-        return Container(
-          height: 2,
-          width: double.infinity,
-          color: Colors.white12,
-          child: FractionallySizedBox(
+        String fmt(Duration d) {
+          final h = d.inHours;
+          final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+          final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+          return h > 0 ? '$h:$m:$s' : '$m:$s';
+        }
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (details) {
+            final width = context.size?.width ?? 1;
+            if (width <= 0) return;
+            final ratio = (details.localPosition.dx / width).clamp(0.0, 1.0);
+            final target = Duration(
+                milliseconds: (duration.inMilliseconds * ratio).round());
+            instance.player.seek(target);
+          },
+          onHorizontalDragUpdate: (details) {
+            final width = context.size?.width ?? 1;
+            if (width <= 0) return;
+            final ratio = (details.localPosition.dx / width).clamp(0.0, 1.0);
+            final target = Duration(
+                milliseconds: (duration.inMilliseconds * ratio).round());
+            instance.player.seek(target);
+          },
+          child: Container(
+            height: 28,
+            color: Colors.transparent,
             alignment: Alignment.centerLeft,
-            widthFactor: progress.clamp(0.0, 1.0),
-            child: Container(color: Colors.white),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  height: 2,
+                  width: double.infinity,
+                  color: Colors.white12,
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: progress.clamp(0.0, 1.0),
+                    child: Container(color: Colors.white),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Text(
+                      fmt(position),
+                      style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10,
+                          shadows: [
+                            Shadow(
+                                offset: Offset(0, 1),
+                                blurRadius: 2,
+                                color: Colors.black54),
+                          ]),
+                    ),
+                    const Spacer(),
+                    Text(
+                      fmt(duration),
+                      style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10,
+                          shadows: [
+                            Shadow(
+                                offset: Offset(0, 1),
+                                blurRadius: 2,
+                                color: Colors.black54),
+                          ]),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         );
       },

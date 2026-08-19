@@ -420,7 +420,7 @@ class TwitterClient {
           if (legacy == null) continue;
 
           allSubs.add(Subscription(
-            id: userResult["rest_id"],
+            id: legacy["screen_name"],
             screenName: legacy["screen_name"],
             name: legacy["name"] ?? '',
             profileImageUrl:
