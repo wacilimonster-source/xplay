@@ -1,0 +1,177 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:media_kit/media_kit.dart';
+import 'features/feed/tiktok_feed_screen.dart';
+import 'features/feed/hashtag_feed_screen.dart';
+import 'features/subscriptions/subscription_list_screen.dart';
+import 'features/profile/user_details_screen.dart';
+import 'features/profile/user_media_feed_screen.dart';
+import 'core/navigation/navigation_provider.dart';
+import 'core/client/background_sync.dart';
+import 'core/client/transaction_id_service.dart';
+import 'core/client/twitter_client.dart';
+import 'features/settings/settings_provider.dart';
+import 'core/client/twitter_account.dart';
+import 'core/client/query_id_resolver.dart';
+import 'core/database/repository.dart';
+import 'core/utils/lifecycle_provider.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
+
+  await Future.wait([
+    TwitterAccount.init(),
+    QueryIdResolver.init(),
+    Repository.database,
+  ]);
+
+  runApp(const ProviderScope(child: XFlowApp()));
+}
+
+class XFlowApp extends ConsumerWidget {
+  const XFlowApp({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Listen to lifecycle changes
+    ref.listen(lifecycleProvider, (previous, next) {
+      if (next == AppLifecycle.resumed) {
+        debugPrint('XFLOW: App resumed. Ensuring BackgroundSync is active.');
+        TwitterClient.resetQueue();
+        BackgroundSync.restart(TwitterClient(), ref.read(settingsProvider));
+      }
+    });
+
+    ref.listen(settingsProvider, (prev, next) {
+      if (prev?.syncInterval != next.syncInterval ||
+          prev?.syncBatchSize != next.syncBatchSize ||
+          prev?.pruneThreshold != next.pruneThreshold) {
+        BackgroundSync.restart(TwitterClient(), next);
+      }
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      BackgroundSync.start(TwitterClient(), ref.read(settingsProvider));
+    });
+
+    return MaterialApp(
+      title: 'XPlay',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.blue,
+          brightness: Brightness.dark,
+          surface: Colors.black,
+        ),
+        scaffoldBackgroundColor: Colors.black,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.black,
+          elevation: 0,
+          centerTitle: true,
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: Colors.black,
+          indicatorColor: Colors.blue.withOpacity(0.2),
+          labelTextStyle: WidgetStateProperty.all(
+            const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+          ),
+        ),
+      ),
+      home: const MainScaffold(),
+    );
+  }
+}
+
+class MainScaffold extends ConsumerWidget {
+  const MainScaffold({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final nav = ref.watch(navigationProvider);
+    final navNotifier = ref.read(navigationProvider.notifier);
+
+    final mainScreens = IndexedStack(
+      index: nav.currentTab.index,
+      children: const [
+        TiktokFeedScreen(),
+        SubscriptionListScreen(isStandalone: false),
+        HashtagListScreen(),
+      ],
+    );
+
+    Widget? overlayScreen;
+    if (nav.selectedHashtag != null) {
+      overlayScreen = HashtagMediaFeedScreen(hashtag: nav.selectedHashtag!);
+    } else if (nav.selectedUser != null) {
+      if (nav.userMediaInitialIndex != null) {
+        overlayScreen = UserMediaFeedScreen(
+          screenName: nav.selectedUser!,
+          initialIndex: nav.userMediaInitialIndex!,
+          initialTweetId: nav.userMediaInitialTweetId,
+        );
+      } else {
+        overlayScreen = UserDetailsScreen(screenName: nav.selectedUser!);
+      }
+    }
+
+    final body = Stack(
+      children: [
+        Visibility(
+          visible: overlayScreen == null,
+          maintainState: true,
+          child: mainScreens,
+        ),
+        const Positioned(
+          left: 0,
+          top: 0,
+          child: TransactionIdWebViewHost(),
+        ),
+        if (overlayScreen != null)
+          Container(
+            color: Colors.black,
+            child: overlayScreen,
+          ),
+      ],
+    );
+
+    return PopScope(
+      canPop: nav.selectedUser == null && nav.selectedHashtag == null,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          navNotifier.back();
+        }
+      },
+      child: Scaffold(
+        body: body,
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: nav.currentTab.index,
+          onDestinationSelected: (index) {
+            navNotifier.setTab(MainTab.values[index]);
+            if (index == 1) {
+              ref.invalidate(subscriptionListProvider);
+            }
+          },
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.video_library_outlined),
+              selectedIcon: Icon(Icons.video_library, color: Colors.blue),
+              label: '媒体',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.people_outline),
+              selectedIcon: Icon(Icons.people, color: Colors.blue),
+              label: '订阅',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.trending_up_outlined),
+              selectedIcon: Icon(Icons.trending_up, color: Colors.blue),
+              label: '话题',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
