@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/database/repository.dart';
 import '../../core/navigation/navigation_provider.dart';
 import '../player/player_pool_provider.dart';
 import '../player/widgets/media_container.dart';
@@ -173,6 +174,11 @@ class _HashtagMediaFeedScreenState
       final feedAsync = ref.read(hashtagMediaProvider(widget.hashtag));
       if (feedAsync.hasValue) {
         final tweets = feedAsync.value!.tweets;
+        // 标记已看(话题流不写 cached_media,只写 watched_media)
+        if (page < tweets.length) {
+          final t = tweets[page];
+          Repository.markWatched(t.id, mediaKey: t.mediaKey);
+        }
         final settings = ref.read(settingsProvider);
         if (page >= tweets.length - settings.lazyLoadThreshold &&
             !feedAsync.value!.isLoadingMore) {

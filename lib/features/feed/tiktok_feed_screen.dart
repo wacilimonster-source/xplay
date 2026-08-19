@@ -51,7 +51,9 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
         final tweets = feedAsync.value!.tweets;
 
         if (page < tweets.length) {
-          Repository.markMediaAsPlayed(tweets[page].id);
+          final t = tweets[page];
+          Repository.markMediaAsPlayed(t.id);
+          Repository.markWatched(t.id, mediaKey: t.mediaKey);
         }
 
         final settings = ref.read(settingsProvider);

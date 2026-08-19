@@ -172,6 +172,9 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
 
     final client = ref.read(twitterClientProvider);
     final settings = ref.read(settingsProvider);
+    final watched = settings.avoidWatchedContent
+        ? await Repository.getWatchedIdentifiers()
+        : const <String>{};
 
     debugPrint('XFLOW: Background refresh started');
 
@@ -208,8 +211,10 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
       }
 
       final freshPool = freshResponse.tweets;
-      final freshTagged =
-          freshPool.map((t) => t.copyWith(source: 'API')).toList();
+      final freshTagged = Repository.filterUnwatched(
+        freshPool.map((t) => t.copyWith(source: 'API')).toList(),
+        watched,
+      );
 
       debugPrint(
           'XFLOW: Background refresh returned ${freshPool.length} fresh tweets');
@@ -278,6 +283,9 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
     state = AsyncData(currentState.copyWith(isLoadingMore: true));
 
     try {
+      final watched = settings.avoidWatchedContent
+          ? await Repository.getWatchedIdentifiers()
+          : const <String>{};
       final seenIds = state.value!.tweets.map((t) => t.id).toSet();
 
       // Use dynamic deduplication window from settings
@@ -310,10 +318,10 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
           filters: settings.filters,
         );
 
-        var localNew = dbCandidates.where((t) {
+        var localNew = Repository.filterUnwatched(dbCandidates.where((t) {
           return !seenIds.contains(t.id) &&
               (t.mediaUrls.isEmpty || !seenMedia.contains(t.mediaUrls.first));
-        }).toList();
+        }).toList(), watched);
 
         if (localNew.isNotEmpty) {
           allNewTweets.addAll(localNew);
@@ -361,10 +369,10 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
             );
           }
 
-          final freshUnique = response.tweets.where((t) {
+          final freshUnique = Repository.filterUnwatched(response.tweets.where((t) {
             return !seenIds.contains(t.id) &&
                 (t.mediaUrls.isEmpty || !seenMedia.contains(t.mediaUrls.first));
-          }).toList();
+          }).toList(), watched);
 
           if (response.tweets.isNotEmpty) {
             await Repository.insertCachedMedia(response.tweets);

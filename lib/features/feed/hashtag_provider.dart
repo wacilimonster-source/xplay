@@ -52,6 +52,9 @@ class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
     final hashtag = arg;
     final client = ref.watch(twitterClientProvider);
     final settings = ref.watch(settingsProvider);
+    final watched = settings.avoidWatchedContent
+        ? await Repository.getWatchedIdentifiers()
+        : const <String>{};
     final mediaQuery = _mediaSearchQuery(hashtag);
     final plainQuery = _plainSearchQuery(hashtag);
 
@@ -79,8 +82,9 @@ class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
       _activeQuery = plainQuery;
     }
 
+    final filteredTweets = Repository.filterUnwatched(response.tweets, watched);
     return FeedState(
-      tweets: response.tweets,
+      tweets: filteredTweets,
       cursorBottom: response.cursorBottom,
       isRefreshing: false,
     );
@@ -103,6 +107,9 @@ class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
 
     final client = ref.read(twitterClientProvider);
     final settings = ref.read(settingsProvider);
+    final watched = settings.avoidWatchedContent
+        ? await Repository.getWatchedIdentifiers()
+        : const <String>{};
     final query = _activeQuery ?? _mediaSearchQuery(arg);
 
     try {
@@ -114,8 +121,10 @@ class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
       );
 
       final seenIds = currentState.tweets.map((t) => t.id).toSet();
-      final uniqueNew =
-          response.tweets.where((t) => !seenIds.contains(t.id)).toList();
+      final uniqueNew = Repository.filterUnwatched(
+        response.tweets.where((t) => !seenIds.contains(t.id)).toList(),
+        watched,
+      );
 
       state = AsyncData(currentState.copyWith(
         tweets: [...currentState.tweets, ...uniqueNew],

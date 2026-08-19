@@ -11,6 +11,7 @@ const String tableAccounts = 'accounts';
 const String tableSubscriptions = 'subscriptions';
 const String tableCachedMedia = 'cached_media';
 const String tableHashtags = 'hashtags';
+const String tableWatchedMedia = 'watched_media';
 
 class Repository {
   static Database? _database;
@@ -30,7 +31,7 @@ class Repository {
     }
     return await openDatabase(
       path,
-      version: 9,
+      version: 10,
       onCreate: (db, version) async {
         await db.execute(
           'CREATE TABLE $tableAccounts (id TEXT PRIMARY KEY, screen_name TEXT, rest_id TEXT, auth_header TEXT)',
@@ -67,6 +68,13 @@ class Repository {
         await db.execute(
           'CREATE INDEX idx_suggested ON $tableCachedMedia (last_suggested_at)',
         );
+        await db.execute('''
+          CREATE TABLE $tableWatchedMedia (
+            id TEXT PRIMARY KEY,
+            media_key TEXT,
+            watched_at INTEGER
+          )
+        ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -124,6 +132,15 @@ class Repository {
               'ALTER TABLE $tableCachedMedia ADD COLUMN last_suggested_at INTEGER');
           await db.execute(
               'CREATE INDEX IF NOT EXISTS idx_suggested ON $tableCachedMedia (last_suggested_at)');
+        }
+        if (oldVersion < 10) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS $tableWatchedMedia (
+              id TEXT PRIMARY KEY,
+              media_key TEXT,
+              watched_at INTEGER
+            )
+          ''');
         }
       },
     );
@@ -507,6 +524,47 @@ class Repository {
       SET played_count = played_count + 1, last_played_at = ? 
       WHERE id = ?
     ''', [DateTime.now().millisecondsSinceEpoch, id]);
+  }
+
+  /// 标记一条内容为已看。写入独立的 watched_media 表(与 cached_media 隔离)。
+  /// 话题流只调这个;主页在保留 markMediaAsPlayed 的同时也调这个,保证跨 feed 一致。
+  static Future<void> markWatched(String id, {String? mediaKey}) async {
+    final db = await database;
+    await db.insert(
+      tableWatchedMedia,
+      {
+        'id': id,
+        'media_key': mediaKey,
+        'watched_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  /// 返回所有已看的标识符集合(id + 非空 media_key),用于过滤。
+  static Future<Set<String>> getWatchedIdentifiers() async {
+    final db = await database;
+    final maps = await db.query(
+      tableWatchedMedia,
+      columns: ['id', 'media_key'],
+    );
+    final set = <String>{};
+    for (final m in maps) {
+      set.add(m['id'] as String);
+      final mk = m['media_key'];
+      if (mk != null) set.add(mk as String);
+    }
+    return set;
+  }
+
+  /// 从列表中剔除已看项。media_key 为 null 时只按 id 判定。
+  static List<Tweet> filterUnwatched(List<Tweet> tweets, Set<String> watched) {
+    if (watched.isEmpty) return tweets;
+    return tweets.where((t) {
+      if (watched.contains(t.id)) return false;
+      if (t.mediaKey != null && watched.contains(t.mediaKey)) return false;
+      return true;
+    }).toList();
   }
 
   static Future<int> getMediaPlayedCount(String id) async {
