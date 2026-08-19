@@ -27,6 +27,7 @@ dependencies:
   sqflite: ^2.4.2
   ffcache: ^1.1.0
   crypto: ^3.0.3
+  pointycastle: ^3.9.1
   path: ^1.9.1
   flutter_svg: ^2.3.0
   url_launcher: ^6.3.1
