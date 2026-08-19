@@ -766,61 +766,77 @@ class TwitterClient {
 
     if (cursor != null) variables['cursor'] = cursor;
 
-    final uri = Uri.https('x.com', '/i/api${QueryIdResolver.pathFor('UserTweets')}', {
-      'variables': jsonEncode(variables),
-      'features': jsonEncode(defaultFeatures),
-      'fieldToggles': jsonEncode({'withArticlePlainText': false})
-    });
+    final attemptPaths = QueryIdResolver.candidatePaths('UserTweets');
 
-    try {
-      _logTimelineRequest(
-        'fetchUserTimeline',
-        uri,
-        context: {
-          'userId': userId,
-          'cursor': cursor,
-          'count': count,
-        },
-      );
-      await _waitForTurn();
-      final response = await TwitterAccount.fetch(uri)
-          .timeout(Duration(seconds: timeoutSeconds));
-      _releaseTurn();
+    for (var i = 0; i < attemptPaths.length; i++) {
+      final path = attemptPaths[i];
+      final uri = Uri.https('x.com', '/i/api$path', {
+        'variables': jsonEncode(variables),
+        'features': jsonEncode(defaultFeatures),
+        'fieldToggles': jsonEncode({'withArticlePlainText': false})
+      });
 
-      if (response.statusCode == 429) {
-        _handleRateLimit(cooldownMinutes);
-        return TweetResponse(tweets: []);
+      try {
+        _logTimelineRequest(
+          'fetchUserTimeline',
+          uri,
+          context: {
+            'userId': userId,
+            'cursor': cursor,
+            'count': count,
+            'attempt': i + 1,
+            'operationPath': path,
+          },
+        );
+        await _waitForTurn();
+        final response = await TwitterAccount.fetch(uri)
+            .timeout(Duration(seconds: timeoutSeconds));
+        _releaseTurn();
+
+        if (response.statusCode == 429) {
+          _handleRateLimit(cooldownMinutes);
+          return TweetResponse(tweets: []);
+        }
+        if (response.statusCode == 404 && i < attemptPaths.length - 1) {
+          AppLogger.log(
+              'UserTweets returned 404 for $path. Retrying with alternate operation id.');
+          continue;
+        }
+        if (response.statusCode != 200) {
+          AppLogger.log(
+              'Error fetching user timeline: Status ${response.statusCode}');
+          return TweetResponse(tweets: []);
+        }
+
+        final data = json.decode(response.body);
+        final timeline =
+            data['data']?['user']?['result']?['timeline_v2']?['timeline'];
+        if (timeline == null) {
+          AppLogger.log('User timeline result is null for userId: $userId');
+          return TweetResponse(tweets: []);
+        }
+
+        AppLogger.log('Successfully fetched user timeline for userId: $userId');
+        final tweetResponse = _parseTweets(timeline);
+        _logTimelineResult(
+          'fetchUserTimeline',
+          tweetResponse,
+          context: {
+            'userId': userId,
+            'cursor': cursor,
+            'count': count,
+            'attempt': i + 1,
+            'operationPath': path,
+          },
+        );
+        return tweetResponse;
+      } catch (e) {
+        _releaseTurn();
+        AppLogger.log('Error fetching user timeline: $e');
       }
-      if (response.statusCode != 200) {
-        AppLogger.log(
-            'Error fetching user timeline: Status ${response.statusCode}');
-        return TweetResponse(tweets: []);
-      }
-
-      final data = json.decode(response.body);
-      final timeline =
-          data['data']?['user']?['result']?['timeline_v2']?['timeline'];
-      if (timeline == null) {
-        AppLogger.log('User timeline result is null for userId: $userId');
-        return TweetResponse(tweets: []);
-      }
-
-      AppLogger.log('Successfully fetched user timeline for userId: $userId');
-      final tweetResponse = _parseTweets(timeline);
-      _logTimelineResult(
-        'fetchUserTimeline',
-        tweetResponse,
-        context: {
-          'userId': userId,
-          'cursor': cursor,
-          'count': count,
-        },
-      );
-      return tweetResponse;
-    } catch (e) {
-      AppLogger.log('Error fetching user timeline: $e');
-      return TweetResponse(tweets: []);
     }
+
+    return TweetResponse(tweets: []);
   }
 
   Future<TweetResponse> fetchUserTimelineByScreenName(String screenName,

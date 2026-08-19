@@ -98,6 +98,7 @@ class QueryIdResolver {
   /// Sourced from community clients (go-twitter / twikit / twscrape / ylw1997).
   static final Map<String, List<String>> _alternates = {
     'SearchTimeline': [
+      'gkjsKepM6gl_HmFWoWKfgg',
       'GcXk9vN_d1jUfHNqLacXQA',
       'lZ0GCEojmtQfiUQa5oJSEw',
       'XN_HccZ9SU-miQVvwTAlFQ',
@@ -105,6 +106,7 @@ class QueryIdResolver {
       'BGd0T_j7oVwlW5U79tO_0A',
     ],
     'TweetDetail': [
+      '6I7Hm635Q6ftv69L8VrSeQ',
       'VWFGPVAGkZMGRKGe3GFFnA',
       'U0HTv-bAWTBYylwEMT7x5A',
       'BbmLpxKh8rX8LNe2LhVujA',
@@ -126,11 +128,13 @@ class QueryIdResolver {
       'b8XpwALENnJdFSHchkK6rw',
     ],
     'UserByScreenName': [
+      '-oaLodhGbbnzJBACb1kk2Q',
       'Gb-d6r0vxPOADdG62OEBpQ',
       'IGgvgiOx4QZndDHuD3x9TQ',
       'G3KGOASz96M-Qu0nwmGXNg',
     ],
     'UserTweets': [
+      '9rys0A7w1EyqVd2ME0QCJg',
       'eoJ5zbv51Z_KVl81v9PmLQ',
       'FOlovQsiHGDls3c0Q_HaSQ',
       'VgitpdpNZ-RUIp5D1Z_D-A',

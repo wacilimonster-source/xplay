@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:ffcache/ffcache.dart';
 import 'x_api_constants.dart';
 import 'transaction_id_service.dart';
+import 'x_xp_forwarded_for.dart';
 import '../database/entities.dart';
 import '../database/repository.dart';
 import '../utils/app_logger.dart';
@@ -116,6 +117,20 @@ class TwitterAccount {
       combinedHeaders.addAll(authHeaders);
     }
 
+    // X requires x-xp-forwarded-for on SearchTimeline/Followers since 2026.
+    // The AES key is derived from the session's guest_id cookie.
+    try {
+      final guestId = _guestIdFromAccount();
+      final xpff = guestId == null
+          ? null
+          : XpForwardedFor.generate(guestId: guestId);
+      if (xpff != null) {
+        combinedHeaders['x-xp-forwarded-for'] = xpff;
+      }
+    } catch (e) {
+      debugPrint('Error generating x-xp-forwarded-for: $e');
+    }
+
     // Try to get x-client-transaction-id
     String? transactionId;
     String txIdStatus = 'missing';
@@ -180,6 +195,22 @@ class TwitterAccount {
       });
     }
     return response;
+  }
+
+  static String? _guestIdFromAccount() {
+    final account = _currentAccount;
+    if (account == null) return null;
+    try {
+      final auth =
+          Map<String, String>.from(json.decode(account.authHeader));
+      final cookie = auth['Cookie'];
+      if (cookie == null) return null;
+      final match =
+          RegExp(r'(?:^|;\s*)guest_id=([^;]+)').firstMatch(cookie);
+      return match?.group(1);
+    } catch (_) {
+      return null;
+    }
   }
 
   static void setCurrentAccount(Account account) {

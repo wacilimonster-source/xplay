@@ -1,9 +1,9 @@
 {
-  "version": "0.01.3",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.3/app-release.apk",
+  "version": "0.01.4",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.4/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.3/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.4/app-release.apk"
   ],
-  "notes": "完善 XPlay 全项目中文界面，优化更新检查与下载体验。",
+  "notes": "修复用户媒体与订阅媒体无法加载：实现 x-xp-forwarded-for 头并新增查询 ID 候选重试。",
   "publishedAt": "2026-08-20"
 }
