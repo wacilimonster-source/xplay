@@ -1,9 +1,9 @@
 {
-  "version": "0.01.2",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.2/app-release.apk",
+  "version": "0.01.3",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.3/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.2/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.3/app-release.apk"
   ],
-  "notes": "优化更新检查速度，支持后台下载、进度显示和系统安装器安装；修复启动闪退问题。",
-  "publishedAt": "2026-08-19"
+  "notes": "完善 XPlay 全项目中文界面，优化更新检查与下载体验。",
+  "publishedAt": "2026-08-20"
 }
