@@ -46,13 +46,6 @@ class UserDetailsScreen extends ConsumerWidget {
                         .refresh(),
                   ),
                   IconButton(
-                    icon: Icon(settings.isListView
-                        ? Icons.grid_view
-                        : Icons.view_list),
-                    onPressed: () =>
-                        settingsNotifier.toggleListView(!settings.isListView),
-                  ),
-                  IconButton(
                     icon: Icon(settings.userDetailAvoidWatchedContent
                         ? Icons.filter_alt
                         : Icons.filter_alt_off),
@@ -209,76 +202,6 @@ class UserDetailsScreen extends ConsumerWidget {
                                       style: TextStyle(color: Colors.white70)),
                                 ],
                               ),
-                            ),
-                          ),
-                        )
-                      else if (settings.isListView)
-                        SliverPadding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          sliver: SliverList(
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) {
-                                if (index == tweets.length - 1) {
-                                  WidgetsBinding.instance
-                                      .addPostFrameCallback((_) {
-                                    ref
-                                        .read(userMediaNotifierProvider(
-                                                screenName)
-                                            .notifier)
-                                        .fetchMore();
-                                  });
-                                }
-                                final tweet = tweets[index];
-                                return Card(
-                                  elevation: 0,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .surfaceContainerLow,
-                                  margin:
-                                      const EdgeInsets.symmetric(vertical: 4),
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12)),
-                                  child: ListTile(
-                                    key: ValueKey(tweet.id),
-                                    leading: ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: tweet.mediaUrls.isNotEmpty
-                                          ? SizedBox(
-                                              width: 50,
-                                              height: 50,
-                                              child: CachedNetworkImage(
-                                                cacheManager:
-                                                    CustomMediaCacheManager
-                                                        .getInstance(),
-                                                imageUrl: tweet.thumbnailUrl ??
-                                                    tweet.mediaUrls.first,
-                                                fit: BoxFit.cover,
-                                                memCacheWidth: 150,
-                                                memCacheHeight: 150,
-                                              ),
-                                            )
-                                          : const Icon(Icons.text_fields),
-                                    ),
-                                    title: Text(tweet.text,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis),
-                                    subtitle: Text(
-                                      _formatDate(tweet.createdAt),
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurfaceVariant),
-                                    ),
-                                    onTap: () => ref
-                                        .read(navigationProvider.notifier)
-                                        .openUserMedia(screenName, index),
-                                  ),
-                                );
-                              },
-                              childCount: tweets.length,
                             ),
                           ),
                         )

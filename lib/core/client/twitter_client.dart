@@ -28,22 +28,11 @@ class TwitterClient {
 
   // Rate limiting prevention
   static bool _isRequestInProgress = false;
-  static DateTime? _rateLimitResetTime;
   static final List<Completer<void>> _requestQueue = [];
   static int _subscriptionChunkIndex = 0;
   static String? _lastSubscribedQuery;
 
   static Future<void> _waitForTurn() async {
-    if (_rateLimitResetTime != null) {
-      final now = DateTime.now();
-      if (now.isBefore(_rateLimitResetTime!)) {
-        final waitTime = _rateLimitResetTime!.difference(now);
-        AppLogger.log('Rate limit active. Waiting ${waitTime.inSeconds}s...');
-        await Future.delayed(waitTime);
-        _rateLimitResetTime = null;
-      }
-    }
-
     if (!_isRequestInProgress) {
       _isRequestInProgress = true;
       return;
@@ -66,7 +55,6 @@ class TwitterClient {
   static void resetQueue() {
     AppLogger.log('XFLOW: Resetting request queue');
     _isRequestInProgress = false;
-    _rateLimitResetTime = null;
     while (_requestQueue.isNotEmpty) {
       final next = _requestQueue.removeAt(0);
       if (!next.isCompleted) {
@@ -77,10 +65,7 @@ class TwitterClient {
   }
 
   static void _handleRateLimit(int minutes) {
-    // minutes comes from settings
-    _rateLimitResetTime = DateTime.now().add(Duration(minutes: minutes));
-    AppLogger.log(
-        '429 Rate Limit Exceeded. Pausing requests for $minutes minutes.');
+    AppLogger.log('429 Rate Limit Exceeded on this endpoint. Skipping.');
   }
 
   static const Map<String, dynamic> defaultFeatures = {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'settings_provider.dart';
 import '../../core/client/account_provider.dart';
 import '../../core/database/repository.dart';
@@ -22,11 +23,18 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   int _metadataCount = 0;
   double _cacheSizeMB = 0;
+  String _appVersion = '';
 
   @override
   void initState() {
     super.initState();
     _loadStats();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) setState(() => _appVersion = info.version);
   }
 
   Future<void> _loadStats() async {
@@ -160,7 +168,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               _SettingsTile(
                 icon: Icons.system_update_outlined,
                 title: '检查更新',
-                subtitle: '检查是否有新版本可用',
+                subtitle: _appVersion.isNotEmpty ? '当前版本 v$_appVersion' : '检查是否有新版本可用',
                 onTap: () => _checkForUpdate(context),
               ),
               _SettingsTile(

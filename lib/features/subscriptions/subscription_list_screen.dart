@@ -104,7 +104,7 @@ class SubscriptionListState {
 class SubscriptionListNotifier extends Notifier<SubscriptionListState> {
   @override
   SubscriptionListState build() {
-    _load();
+    _load().then((_) => _enrichMissingProfiles());
     return SubscriptionListState();
   }
 
@@ -119,6 +119,28 @@ class SubscriptionListNotifier extends Notifier<SubscriptionListState> {
       userViews: results[1] as Map<String, int>,
       isLoading: false,
     );
+  }
+
+  Future<void> _enrichMissingProfiles() async {
+    final subs = state.allSubscriptions;
+    final missing = subs.where((s) =>
+        s.description == null ||
+        s.description!.isEmpty ||
+        s.followersCount == null).toList();
+    if (missing.isEmpty) return;
+
+    final client = TwitterClient();
+    final batch = missing.take(20).toList();
+    for (final sub in batch) {
+      try {
+        final profile = await client.fetchProfile(sub.screenName);
+        if (profile != null) {
+          await Repository.insertSubscription(profile);
+        }
+        await Future.delayed(const Duration(milliseconds: 500));
+      } catch (_) {}
+    }
+    await _load();
   }
 
   void setSearchQuery(String query) {

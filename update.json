@@ -1,9 +1,9 @@
 {
-  "version": "0.01.25",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/0.01.25/app-release.apk",
+  "version": "0.1.26",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/0.1.26/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/0.01.25/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/0.1.26/app-release.apk"
   ],
-  "notes": "SearchTimeline从GET改为POST修复404;增加404响应体诊断日志;过滤器语义反转选中=屏蔽;默认屏蔽图片和纯文本。",
+  "notes": "SearchTimeline GET→POST修复404;移除全局限流阻塞(各端点独立处理429);订阅列表后台补全简介/粉丝数;去除用户媒体列表模式只留卡片;设置页显示当前版本号;版本号规范化。",
   "publishedAt": "2026-08-20"
 }
