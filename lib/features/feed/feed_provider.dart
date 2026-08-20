@@ -6,6 +6,7 @@ import '../../core/models/tweet.dart';
 import '../../core/database/repository.dart';
 import '../../core/client/discovery_engine.dart';
 import '../../core/utils/app_logger.dart';
+import '../../core/utils/media_cache_manager.dart';
 import '../settings/settings_provider.dart';
 import '../player/player_pool_provider.dart';
 
@@ -40,6 +41,9 @@ class FeedState {
 }
 
 class FeedNotifier extends AsyncNotifier<FeedState> {
+  int _cacheWriteCount = 0;
+  static const int _enforceLimitInterval = 5;
+
   List<Tweet> _runDiscoveryPipeline(
     List<Tweet> freshPool,
     List<Tweet> localPool,
@@ -229,6 +233,11 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
 
       if (freshPool.isNotEmpty) {
         await Repository.insertCachedMedia(freshPool);
+        _cacheWriteCount++;
+        if (_cacheWriteCount >= _enforceLimitInterval) {
+          _cacheWriteCount = 0;
+          CustomMediaCacheManager.enforceLimit(settings.mediaCacheSizeMB).ignore();
+        }
       }
 
       // 2. Fetch local pool (now including fresh items)
@@ -432,6 +441,17 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
         maxSaturationSwaps: settings.maxSaturationSwaps,
         maxPasses: settings.maxSaturationPasses,
       );
+
+      // M2: also run unseen-boost on the newly added section, matching refresh behavior
+      if (settings.unseenSubscriptionBoost) {
+        final playedByUser = await Repository.getPlayedCountsByUser();
+        combined = DiscoveryEngine.applyUnseenSubscriptionBoost(
+          combined,
+          playedByUser,
+          lookahead: settings.unseenBoostLookahead,
+          startIndex: state.value!.tweets.length,
+        );
+      }
 
       state = AsyncData(state.value!.copyWith(
         tweets: combined,

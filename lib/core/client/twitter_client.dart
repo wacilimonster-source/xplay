@@ -762,7 +762,9 @@ final userResult =
 
     // FALLBACK: If SearchTimeline returned zero results (likely all IDs expired),
     // try HomeTimeline as a degraded but functional alternative.
-    if (response.tweets.isEmpty && cursor == null) {
+    // (Applies to both first page and paginated requests — paginated
+    // SearchTimeline cursors are invalidated when all query IDs expire.)
+    if (response.tweets.isEmpty) {
       AppLogger.log(
           'XFLOW: fetchSubscribedMedia SearchTimeline returned 0 tweets. '
           'Trying HomeTimeline fallback...');

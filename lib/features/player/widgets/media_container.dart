@@ -396,9 +396,13 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
                                                 feedNotifierProvider.select(
                                                     (s) =>
                                                         s.value?.tweets
-                                                            .firstWhere((t) =>
-                                                                t.id ==
-                                                                widget.tweet.id)
+                                                            .firstWhere(
+                                                                (t) =>
+                                                                    t.id ==
+                                                                    widget.tweet.id,
+                                                                orElse: () => widget.tweet.copyWith(
+                                                                    isLiked: false),
+                                                            )
                                                             .isLiked ??
                                                         false));
                                             return Icon(

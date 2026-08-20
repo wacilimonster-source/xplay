@@ -5,20 +5,19 @@ import 'package:media_kit_video/media_kit_video.dart';
 class PlayerInstance {
   final Player player;
   final VideoController controller;
+  DateTime lastUsed;
 
-  PlayerInstance(this.player, this.controller);
+  PlayerInstance(this.player, this.controller)
+      : lastUsed = DateTime.now();
 
   void dispose() {
-    // Media-kit documentation says VideoController might not need explicit dispose
-    // if Player is disposed, but it's safer to check and follow best practices
-    // especially for native resources.
+    // VideoController is disposed implicitly when Player is disposed
+    // (media_kit manages the lifecycle). Explicit dispose not needed.
     player.dispose();
   }
 }
 
 class PlayerPoolNotifier extends Notifier<Map<String, PlayerInstance>> {
-  /// Hard cap on live player instances. The pool is global and outlives feed
-  /// screens, so keep a ceiling to bound native memory use.
   static const int maxPoolSize = 12;
 
   @override
@@ -32,7 +31,14 @@ class PlayerPoolNotifier extends Notifier<Map<String, PlayerInstance>> {
   }
 
   void warmup(String id, String url, {bool isLandscape = false}) {
-    if (state.containsKey(id)) return;
+    if (state.containsKey(id)) {
+      // Refresh LRU time on re-warmup of an already-loaded instance
+      state = {
+        ...state,
+        id: state[id]!..lastUsed = DateTime.now(),
+      };
+      return;
+    }
 
     final player = Player();
     final controller = VideoController(
@@ -41,14 +47,23 @@ class PlayerPoolNotifier extends Notifier<Map<String, PlayerInstance>> {
         enableHardwareAcceleration: true,
       ),
     );
-    player.open(Media(url), play: false); // Pre-load but don't play
+    player.open(Media(url), play: false);
 
     var newState = {...state, id: PlayerInstance(player, controller)};
     if (newState.length > maxPoolSize) {
-      // Map keeps insertion order: evict the oldest instance.
-      final oldestId = newState.keys.first;
-      newState[oldestId]?.dispose();
-      newState = Map.from(newState)..remove(oldestId);
+      // Evict the least recently used instance (LRU).
+      String? lruId;
+      DateTime? oldest;
+      for (final e in newState.entries) {
+        if (oldest == null || e.value.lastUsed.isBefore(oldest)) {
+          oldest = e.value.lastUsed;
+          lruId = e.key;
+        }
+      }
+      if (lruId != null) {
+        newState[lruId]?.dispose();
+        newState = Map.from(newState)..remove(lruId);
+      }
     }
     state = newState;
   }
