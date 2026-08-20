@@ -118,7 +118,7 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
   }
 
   @override
-  FutureOr<FeedState> build() async {
+  Future<FeedState> build() async {
     final settings = ref.watch(settingsProvider);
 
     debugPrint(

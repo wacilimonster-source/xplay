@@ -6,7 +6,7 @@ import '../settings/settings_provider.dart';
 
 class HashtagListNotifier extends AsyncNotifier<List<String>> {
   @override
-  FutureOr<List<String>> build() async {
+  Future<List<String>> build() async {
     return Repository.getHashtags();
   }
 
@@ -48,7 +48,7 @@ class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
   String? _activeQuery;
 
   @override
-  FutureOr<FeedState> build() async {
+  Future<FeedState> build() async {
     final hashtag = arg;
     final client = ref.watch(twitterClientProvider);
     final settings = ref.watch(settingsProvider);

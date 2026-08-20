@@ -258,30 +258,8 @@ class SubscriptionListScreen extends ConsumerWidget {
                 margin: const EdgeInsets.symmetric(vertical: 4),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16)),
-                child: ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  leading: CircleAvatar(
-                    radius: 24,
-                    backgroundImage: sub.profileImageUrl != null
-                        ? CachedNetworkImageProvider(
-                            sub.profileImageUrl!,
-                            cacheManager: CustomMediaCacheManager.getInstance(),
-                          )
-                        : null,
-                    child: sub.profileImageUrl == null
-                        ? const Icon(Icons.person, size: 24)
-                        : null,
-                  ),
-                  title: Text(
-                    sub.name,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Text(
-                    '@${sub.screenName}${sub.followersCount != null ? " • ${_formatCount(sub.followersCount!)} 粉丝" : ""}${views > 0 ? " • $views 次观看" : ""}',
-                    style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant),
-                  ),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
                   onTap: () {
                     if (isStandalone) {
                       Navigator.push(
@@ -297,6 +275,104 @@ class SubscriptionListScreen extends ConsumerWidget {
                           .selectUser(sub.screenName);
                     }
                   },
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(
+                          radius: 28,
+                          backgroundImage: sub.profileImageUrl != null
+                              ? CachedNetworkImageProvider(
+                                  sub.profileImageUrl!,
+                                  cacheManager:
+                                      CustomMediaCacheManager.getInstance(),
+                                )
+                              : null,
+                          child: sub.profileImageUrl == null
+                              ? const Icon(Icons.person, size: 28)
+                              : null,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      sub.name,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 15),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: Text(
+                                      '@${sub.screenName}',
+                                      style: TextStyle(
+                                          color: Theme.of(context)
+                                              .colorScheme.onSurfaceVariant,
+                                          fontSize: 13),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (sub.description != null &&
+                                  sub.description!.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  sub.description!,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                      color: Theme.of(context)
+                                          .colorScheme.onSurfaceVariant,
+                                          fontSize: 13),
+                                ),
+                              ],
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  if (sub.followersCount != null) ...[
+                                    Icon(Icons.people_outline,
+                                        size: 13,
+                                        color: Theme.of(context)
+                                            .colorScheme.onSurfaceVariant),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      _formatCount(sub.followersCount!),
+                                      style: TextStyle(
+                                          color: Theme.of(context)
+                                              .colorScheme.onSurfaceVariant,
+                                          fontSize: 12),
+                                    ),
+                                    const SizedBox(width: 12),
+                                  ],
+                                  Icon(Icons.play_circle_outline,
+                                      size: 13,
+                                      color: Theme.of(context)
+                                          .colorScheme.onSurfaceVariant),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    '$views 次观看',
+                                    style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme.onSurfaceVariant,
+                                        fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               );
             },

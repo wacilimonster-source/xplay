@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../../core/navigation/navigation_provider.dart';
 import '../../core/utils/media_cache_manager.dart';
 import '../settings/settings_provider.dart';
@@ -272,144 +271,110 @@ class UserDetailsScreen extends ConsumerWidget {
                         )
                       else
                         SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            child: MasonryGridView.count(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              crossAxisCount: 3,
-                              mainAxisSpacing: 4,
-                              crossAxisSpacing: 4,
-                              itemBuilder: (context, index) {
-                                if (index == tweets.length - 1) {
-                                  WidgetsBinding.instance
-                                      .addPostFrameCallback((_) {
-                                    ref
-                                        .read(userMediaNotifierProvider(
-                                                screenName)
-                                            .notifier)
-                                        .fetchMore();
-                                  });
-                                }
-
-                                final tweet = tweets[index];
-                                final cellWidth =
-                                    (MediaQuery.of(context).size.width -
-                                            8 -
-                                            4 * 3) /
-                                        3;
-                                final ratio =
-                                    tweet.mediaWidth != null &&
-                                            tweet.mediaHeight != null &&
-                                            tweet.mediaWidth! > 0 &&
-                                            tweet.mediaHeight! > 0
-                                        ? tweet.mediaWidth! / tweet.mediaHeight!
-                                        : 1.0;
-                                final mainAxisExtent =
-                                    cellWidth / ratio + 48;
-
-                                return GestureDetector(
-                                  key: ValueKey(tweet.id),
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            itemCount: tweets.length + (tweets.isNotEmpty ? 1 : 0),
+                            itemBuilder: (context, index) {
+                              if (index == tweets.length) {
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  ref.read(userMediaNotifierProvider(screenName).notifier).fetchMore();
+                                });
+                                return const SizedBox(height: 16);
+                              }
+                              final tweet = tweets[index];
+                              return Card(
+                                elevation: 0,
+                                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                                margin: const EdgeInsets.only(bottom: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                clipBehavior: Clip.antiAlias,
+                                child: InkWell(
                                   onTap: () {
-                                    ref
-                                        .read(navigationProvider.notifier)
-                                        .openUserMedia(screenName, index,
-                                            tweetId: tweet.id);
+                                    ref.read(navigationProvider.notifier).openUserMedia(screenName, index, tweetId: tweet.id);
                                   },
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .surfaceContainerHigh,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    clipBehavior: Clip.antiAlias,
-                                    child: Stack(
-                                      fit: StackFit.passthrough,
-                                      children: [
-                                        SizedBox(
-                                          height: mainAxisExtent - 48,
-                                          width: double.infinity,
-                                          child: tweet.mediaUrls.isNotEmpty
-                                              ? CachedNetworkImage(
-                                                  cacheManager:
-                                                      CustomMediaCacheManager
-                                                          .getInstance(),
-                                                  imageUrl:
-                                                      tweet.thumbnailUrl ??
-                                                          tweet.mediaUrls.first,
-                                                  fit: BoxFit.cover,
-                                                  memCacheWidth: 300,
-                                                  memCacheHeight: 300,
-                                                  placeholder: (context, url) =>
-                                                      Container(
-                                                          color: Colors.black12),
-                                                  errorWidget:
-                                                      (context, url, error) =>
-                                                          const Icon(
-                                                              Icons.error),
-                                                )
-                                              : Container(
-                                                  padding:
-                                                      const EdgeInsets.all(8),
-                                                  alignment: Alignment.center,
-                                                  child: Text(
-                                                    tweet.text,
-                                                    maxLines: 4,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    textAlign: TextAlign.center,
-                                                    style: Theme.of(context)
-                                                        .textTheme
-                                                        .bodySmall
-                                                        ?.copyWith(fontSize: 10),
-                                                  ),
-                                                ),
-                                        ),
-                                        Positioned(
-                                          left: 4,
-                                          bottom: 4,
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: Colors.black54,
-                                              borderRadius:
-                                                  BorderRadius.circular(4),
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                if (tweet.isVideo)
-                                                  const Icon(
-                                                    Icons.play_circle_outline,
-                                                    color: Colors.white70,
-                                                    size: 14,
-                                                  ),
-                                                if (tweet.mediaUrls.length > 1)
-                                                  Padding(
-                                                    padding:
-                                                        const EdgeInsets.only(
-                                                            left: 2),
-                                                    child: Text(
-                                                      '${tweet.mediaUrls.length}',
-                                                      style: const TextStyle(
-                                                        color: Colors.white70,
-                                                        fontSize: 11,
-                                                      ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      if (tweet.mediaUrls.isNotEmpty)
+                                        AspectRatio(
+                                          aspectRatio: tweet.mediaWidth != null && tweet.mediaHeight != null && tweet.mediaWidth! > 0 && tweet.mediaHeight! > 0
+                                              ? tweet.mediaWidth! / tweet.mediaHeight!
+                                              : 16 / 9,
+                                          child: Stack(
+                                            fit: StackFit.expand,
+                                            children: [
+                                              CachedNetworkImage(
+                                                cacheManager: CustomMediaCacheManager.getInstance(),
+                                                imageUrl: tweet.thumbnailUrl ?? tweet.mediaUrls.first,
+                                                fit: BoxFit.cover,
+                                                memCacheWidth: 600,
+                                                memCacheHeight: 600,
+                                                placeholder: (context, url) => Container(color: Colors.black12),
+                                                errorWidget: (context, url, error) => const Icon(Icons.error),
+                                              ),
+                                              if (tweet.isVideo)
+                                                Positioned(
+                                                  left: 8, bottom: 8,
+                                                  child: Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
+                                                    child: Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        const Icon(Icons.play_circle_fill, color: Colors.white70, size: 18),
+                                                        if (tweet.mediaUrls.length > 1)
+                                                          Padding(
+                                                            padding: const EdgeInsets.only(left: 4),
+                                                            child: Text(tweet.mediaUrls.length.toString(), style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                                                          ),
+                                                      ],
                                                     ),
                                                   ),
+                                                ),
+                                            ],
+                                          ),
+                                        )
+                                      else
+                                        Container(
+                                          padding: const EdgeInsets.all(16),
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(tweet.text, maxLines: 4, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodyMedium),
+                                        ),
+                                      Padding(
+                                        padding: const EdgeInsets.all(12),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            if (tweet.mediaUrls.isNotEmpty && tweet.text.isNotEmpty)
+                                              Text(tweet.text, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+                                            Row(
+                                              children: [
+                                                if (tweet.favoriteCount > 0) ...[
+                                                  Icon(Icons.favorite_outline, size: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                                  const SizedBox(width: 3),
+                                                  Text(tweet.favoriteCount.toString(), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                                  const SizedBox(width: 12),
+                                                ],
+                                                if (tweet.replyCount > 0) ...[
+                                                  Icon(Icons.chat_bubble_outline, size: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                                  const SizedBox(width: 3),
+                                                  Text(tweet.replyCount.toString(), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                                  const SizedBox(width: 12),
+                                                ],
+                                                const Spacer(),
+                                                Text(_formatDate(tweet.createdAt), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
                                               ],
                                             ),
-                                          ),
+                                          ],
                                         ),
-                                      ],
-                                    ),
+                                      ),
+                                    ],
                                   ),
-                                );
-                              },
-                              itemCount: tweets.length,
-                            ),
+                                ),
+                              );
+                            },
                           ),
                         ),
                     ],

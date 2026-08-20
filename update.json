@@ -1,9 +1,9 @@
 {
-  "version": "0.01.17",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.17/app-release.apk",
+  "version": "0.01.18",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.18/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.17/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.18/app-release.apk"
   ],
-  "notes": "G2缓存自动收敛;M2翻页也跑发现算法管线;Q1 firstWhere加orElse防StateError;Q3播放器池改为LRU按最后访问时间淘汰;S1翻页SearchTimeline空时HomeTimeline降级兜底(去cursor限制)。",
+  "notes": "话题页面HashtagMediaNotifier/HashtagListNotifier build()返回类型修复;订阅列表卡片重新设计(名称/用户名/简介/粉丝数/观看数清晰布局);详情页媒体改为每条一张完整卡片(文字+时间+统计);S1 SearchTimeline翻页HomeTimeline兜底降级;G2缓存写入自动收敛;M2翻页也跑发现管线。",
   "publishedAt": "2026-08-20"
 }
