@@ -1,9 +1,9 @@
 {
-  "version": "0.01.12",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.12/app-release.apk",
+  "version": "0.01.13",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.13/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.12/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.13/app-release.apk"
   ],
-  "notes": "修复关注列表分页循环:去除重复关注、检测游标循环、并发请求合并,避免每次刷新全量拉取;恢复 15 分钟缓存。",
+  "notes": "修复订阅用户详情页空白:UserTweets 操作 ID 失效时自动换备用 ID,全部失效自动降级为搜索接口;关注列表分页循环修复(去重+游标检测+并发合并+15 分钟缓存)加快媒体加载。",
   "publishedAt": "2026-08-20"
 }

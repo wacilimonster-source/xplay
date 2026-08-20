@@ -155,11 +155,16 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
     final userId = profile?.id;
     if (userId != null && userId.isNotEmpty) {
       try {
-        return await client.fetchUserTimeline(
+        final timelineResponse = await client.fetchUserTimeline(
           userId,
           cursor: cursor,
           cooldownMinutes: cooldownMinutes,
         );
+        if (timelineResponse.tweets.isNotEmpty || cursor != null) {
+          return timelineResponse;
+        }
+        debugPrint(
+            'XFLOW: UserTweets empty for $userId, falling back to SearchTimeline');
       } catch (e) {
         debugPrint('XFLOW: User timeline fetch failed for $userId: $e');
       }

@@ -858,6 +858,12 @@ final userResult =
         }
 
         final data = json.decode(response.body);
+        if (data['data'] == null || data['errors'] != null) {
+          AppLogger.log(
+              'UserTweets returned 200 but error body for $path. Retrying alternate operation id.');
+          if (i < attemptPaths.length - 1) continue;
+          return TweetResponse(tweets: []);
+        }
         final timeline =
             data['data']?['user']?['result']?['timeline_v2']?['timeline'];
         if (timeline == null) {
