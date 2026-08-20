@@ -1,9 +1,9 @@
 {
-  "version": "0.01.11",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.11/app-release.apk",
+  "version": "0.01.12",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.12/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.11/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.12/app-release.apk"
   ],
-  "notes": "修复关注列表解析兼容 X 新版扁平响应结构;修复日志解码异常导致搜索请求被中断的问题。",
+  "notes": "修复关注列表分页循环:去除重复关注、检测游标循环、并发请求合并,避免每次刷新全量拉取;恢复 15 分钟缓存。",
   "publishedAt": "2026-08-20"
 }

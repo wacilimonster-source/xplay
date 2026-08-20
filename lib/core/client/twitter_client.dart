@@ -331,13 +331,41 @@ class TwitterClient {
     );
   }
 
+  Future<List<Subscription>>? _followingInFlight;
+
   Future<List<Subscription>> fetchFollowing(String userId,
+      {int maxCount = 2000, int cooldownMinutes = 15}) async {
+    if (_followingInFlight != null) {
+      AppLogger.log('fetchFollowing: reusing in-flight request for $userId');
+      return _followingInFlight!;
+    }
+
+    final future = _fetchFollowing(
+      userId,
+      maxCount: maxCount,
+      cooldownMinutes: cooldownMinutes,
+    );
+    _followingInFlight = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_followingInFlight, future)) {
+        _followingInFlight = null;
+      }
+    }
+  }
+
+  Future<List<Subscription>> _fetchFollowing(String userId,
       {int maxCount = 2000, int cooldownMinutes = 15}) async {
     final allSubs = <Subscription>[];
     String? currentCursor;
+    final seenHandles = <String>{};
+    final seenCursors = <String>{};
 
     try {
       while (allSubs.length < maxCount) {
+        if (currentCursor != null) seenCursors.add(currentCursor);
+
         final variables = {
           "userId": userId,
           "count": 100,
@@ -365,7 +393,8 @@ class TwitterClient {
         );
 
         await _waitForTurn();
-        final response = await TwitterAccount.fetch(uri);
+        final response = await TwitterAccount.fetch(uri,
+            cacheDuration: const Duration(minutes: 15));
         _releaseTurn();
 
         if (response.statusCode == 429) {
@@ -423,6 +452,7 @@ final userResult =
               userResult["core"]?["user_results"]?["result"]?["legacy"]
                   ?["screen_name"]) as String?;
           if (screenName == null || screenName.isEmpty) continue;
+          if (!seenHandles.add(screenName.toLowerCase())) continue;
 
           final name = (userResult["name"] ??
               userResult["legacy"]?["name"] ??
@@ -444,7 +474,8 @@ final userResult =
 
         if (newFound == 0 ||
             nextCursor == null ||
-            nextCursor == currentCursor) {
+            nextCursor == currentCursor ||
+            seenCursors.contains(nextCursor)) {
           AppLogger.log(
               'Timeline result [fetchFollowing]: stopping newFound=$newFound nextCursor=${nextCursor ?? 'null'} currentCursor=${currentCursor ?? 'null'} total=${allSubs.length}');
           if (allSubs.isEmpty && entries.isNotEmpty) {
