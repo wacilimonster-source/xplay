@@ -1,9 +1,9 @@
 {
-  "version": "0.01.21",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/0.01.21/app-release.apk",
+  "version": "0.01.24",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/0.01.24/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/0.01.21/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/0.01.24/app-release.apk"
   ],
-  "notes": "修复详情页粉丝/关注数0显示;fetchFollowing补全description/followersCount/followingCount;过滤器UI移至内容源>高级获取;订阅流/用户详情/API/DB各层均按过滤器过滤视频/图片/文字。",
+  "notes": "过滤器语义反转:选中=屏蔽该类型内容;默认屏蔽图片和纯文本(默认只展示视频);UI增加说明文字。",
   "publishedAt": "2026-08-20"
 }

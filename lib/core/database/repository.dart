@@ -275,7 +275,7 @@ class Repository {
         }
       }
       if (conditions.isNotEmpty) {
-        whereClause += ' AND (${conditions.join(' OR ')})';
+        whereClause += ' AND NOT (${conditions.join(' OR ')})';
       }
     }
 
@@ -346,7 +346,7 @@ class Repository {
         }
       }
       if (conditions.isNotEmpty) {
-        whereClause = '(${conditions.join(' OR ')})';
+        whereClause = 'NOT (${conditions.join(' OR ')})';
         whereArgs = [];
       }
     }
@@ -446,7 +446,7 @@ class Repository {
         }
       }
       if (conditions.isNotEmpty) {
-        whereClause += ' AND (${conditions.join(' OR ')})';
+        whereClause += ' AND NOT (${conditions.join(' OR ')})';
       }
     }
 
@@ -501,7 +501,7 @@ class Repository {
         }
       }
       if (conditions.isNotEmpty) {
-        whereClause += ' AND (${conditions.join(' OR ')})';
+        whereClause += ' AND NOT (${conditions.join(' OR ')})';
       }
     }
 

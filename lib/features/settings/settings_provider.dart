@@ -66,7 +66,7 @@ class SettingsState {
 
   SettingsState({
     this.isInitialized = false,
-    this.filters = const {},
+    this.filters = const {MediaFilter.image, MediaFilter.text},
     this.autoplay = true,
     this.isListView = false,
     this.mediaCacheSizeMB = 500,

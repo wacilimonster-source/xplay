@@ -1223,24 +1223,22 @@ final userResult =
     }
   }
 
-  List<Tweet> _applyFilters(List<Tweet> tweets, Set<MediaFilter> filters) {
+  List<Tweet> _applyFilters(List<Tweet> tweets, Set<MediaFilter> blocked) {
     return tweets.where((tweet) {
-      bool matches = false;
-      for (final filter in filters) {
+      for (final filter in blocked) {
         switch (filter) {
           case MediaFilter.video:
-            if (tweet.isVideo) matches = true;
+            if (tweet.isVideo) return false;
             break;
           case MediaFilter.image:
-            if (!tweet.isVideo && tweet.mediaUrls.isNotEmpty) matches = true;
+            if (!tweet.isVideo && tweet.mediaUrls.isNotEmpty) return false;
             break;
           case MediaFilter.text:
-            if (tweet.mediaUrls.isEmpty) matches = true;
+            if (tweet.mediaUrls.isEmpty) return false;
             break;
         }
-        if (matches) break;
       }
-      return matches;
+      return true;
     }).toList();
   }
 
