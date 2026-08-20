@@ -1,9 +1,9 @@
 {
-  "version": "0.01.13",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.13/app-release.apk",
+  "version": "0.01.14",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.14/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.13/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.14/app-release.apk"
   ],
-  "notes": "修复订阅用户详情页空白:UserTweets 操作 ID 失效时自动换备用 ID,全部失效自动降级为搜索接口;关注列表分页循环修复(去重+游标检测+并发合并+15 分钟缓存)加快媒体加载。",
+  "notes": "修复 txId 本地生成脚本页面导航后失效;远程兜底加冷却避免每次请求阻塞;修复请求队列异常时永久卡死的问题。",
   "publishedAt": "2026-08-20"
 }

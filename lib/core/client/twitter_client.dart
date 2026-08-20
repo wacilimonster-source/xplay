@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'twitter_account.dart';
 import 'query_id_resolver.dart';
 import '../models/tweet.dart';
@@ -393,9 +394,13 @@ class TwitterClient {
         );
 
         await _waitForTurn();
-        final response = await TwitterAccount.fetch(uri,
-            cacheDuration: const Duration(minutes: 15));
-        _releaseTurn();
+        late final http.Response response;
+        try {
+          response = await TwitterAccount.fetch(uri,
+              cacheDuration: const Duration(minutes: 15));
+        } finally {
+          _releaseTurn();
+        }
 
         if (response.statusCode == 429) {
           _handleRateLimit(cooldownMinutes);
@@ -580,9 +585,13 @@ final userResult =
         _logTimelineRequest('fetchTrendingMedia', uri, context: context);
 
         await _waitForTurn();
-        final response = await TwitterAccount.fetch(uri)
-            .timeout(Duration(seconds: timeoutSeconds));
-        _releaseTurn();
+        late final http.Response response;
+        try {
+          response = await TwitterAccount.fetch(uri)
+              .timeout(Duration(seconds: timeoutSeconds));
+        } finally {
+          _releaseTurn();
+        }
 
         if (response.statusCode == 429) {
           _handleRateLimit(cooldownMinutes);
@@ -838,9 +847,13 @@ final userResult =
           },
         );
         await _waitForTurn();
-        final response = await TwitterAccount.fetch(uri)
-            .timeout(Duration(seconds: timeoutSeconds));
-        _releaseTurn();
+        late final http.Response response;
+        try {
+          response = await TwitterAccount.fetch(uri)
+              .timeout(Duration(seconds: timeoutSeconds));
+        } finally {
+          _releaseTurn();
+        }
 
         if (response.statusCode == 429) {
           _handleRateLimit(cooldownMinutes);
@@ -1035,8 +1048,12 @@ final userResult =
         },
       );
       await _waitForTurn();
-      final response = await TwitterAccount.fetch(uri);
-      _releaseTurn();
+      late final http.Response response;
+      try {
+        response = await TwitterAccount.fetch(uri);
+      } finally {
+        _releaseTurn();
+      }
 
       if (response.statusCode != 200) return TweetResponse(tweets: []);
       final result = json.decode(response.body);
@@ -1092,8 +1109,12 @@ final userResult =
         },
       );
       await _waitForTurn();
-      final response = await TwitterAccount.fetch(uri);
-      _releaseTurn();
+      late final http.Response response;
+      try {
+        response = await TwitterAccount.fetch(uri);
+      } finally {
+        _releaseTurn();
+      }
 
       if (response.statusCode != 200) return TweetResponse(tweets: []);
       final result = json.decode(response.body);
@@ -1149,8 +1170,12 @@ final userResult =
         },
       );
       await _waitForTurn();
-      final response = await TwitterAccount.fetch(uri);
-      _releaseTurn();
+      late final http.Response response;
+      try {
+        response = await TwitterAccount.fetch(uri);
+      } finally {
+        _releaseTurn();
+      }
 
       if (response.statusCode != 200) return TweetResponse(tweets: []);
       final result = json.decode(response.body);

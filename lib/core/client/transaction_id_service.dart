@@ -32,6 +32,19 @@ class TransactionIdService {
     }
   }
 
+  /// Every x.com page load resets the JS context, wiping the injected
+  /// generator. Re-install it (idempotent) so the local channel survives
+  /// navigation, otherwise [_scriptInstalled] stays true and the local
+  /// channel silently dies for the whole session.
+  Future<void> reinstallScriptOnPageLoaded(WebViewController controller) async {
+    try {
+      await controller.runJavaScript(_transactionIdGeneratorScript);
+      _scriptInstalled = true;
+    } catch (_) {
+      _scriptInstalled = false;
+    }
+  }
+
   Future<String?> generateForRequest(String path,
       {String method = 'GET'}) async {
     final controller = _controller;
@@ -116,6 +129,10 @@ class _TransactionIdWebViewHostState
               // or the page context was reset) and read whatever was captured.
               _controller.runJavaScript(QueryIdResolver.captureScript)
                   .catchError((_) {});
+              // Page load reset the JS context, so the txId generator must be
+              // re-installed too, or the local txId channel dies silently.
+              TransactionIdService.instance
+                  .reinstallScriptOnPageLoaded(_controller);
               _maybeStartQueryIdCapture();
             }
           },

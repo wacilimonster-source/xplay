@@ -14,6 +14,13 @@ class TwitterAccount {
   static Account? _currentAccount;
   static final FFCache _cache = FFCache();
 
+  // When the third-party txId generator is down or returns garbage, stop
+  // hammering it: every failed call costs up to 2s per request. Back off
+  // for a while instead and send the request without the header (X does
+  // not currently require it).
+  static DateTime? _txIdRemoteCooldownUntil;
+  static const Duration _txIdRemoteCooldown = Duration(seconds: 60);
+
   static Account? get currentAccount => _currentAccount;
 
   static Future<void> init() async {
@@ -149,24 +156,33 @@ class TwitterAccount {
       if (transactionId != null) {
         combinedHeaders['x-client-transaction-id'] = transactionId;
         txIdStatus = 'local:${formatTransactionIdForLog(transactionId)}';
-      } else {
+      } else if (_txIdRemoteCooldownUntil == null ||
+          DateTime.now().isAfter(_txIdRemoteCooldownUntil!)) {
         final transactionUri = Uri.http('x-client-transaction-id-generator.xyz',
             '/generate-x-client-transaction-id', {'path': uri.path});
-        final transactionResponse =
-            await http.get(transactionUri).timeout(const Duration(seconds: 2));
-        if (transactionResponse.statusCode == 200) {
-          transactionId =
-              jsonDecode(transactionResponse.body)['x-client-transaction-id'];
-          if (transactionId != null) {
-            combinedHeaders['x-client-transaction-id'] = transactionId;
-            txIdStatus = 'fallback:${formatTransactionIdForLog(transactionId)}';
+        try {
+          final transactionResponse =
+              await http.get(transactionUri).timeout(const Duration(seconds: 2));
+          if (transactionResponse.statusCode == 200) {
+            transactionId =
+                jsonDecode(transactionResponse.body)['x-client-transaction-id'];
+            if (transactionId != null) {
+              combinedHeaders['x-client-transaction-id'] = transactionId;
+              txIdStatus = 'fallback:${formatTransactionIdForLog(transactionId)}';
+            } else {
+              txIdStatus = 'missing:null-response-field';
+            }
           } else {
-            txIdStatus = 'missing:null-response-field';
+            txIdStatus =
+                'missing:generator-status-${transactionResponse.statusCode}';
           }
-        } else {
-          txIdStatus =
-              'missing:generator-status-${transactionResponse.statusCode}';
+          _txIdRemoteCooldownUntil = null;
+        } catch (e) {
+          _txIdRemoteCooldownUntil = DateTime.now().add(_txIdRemoteCooldown);
+          txIdStatus = 'missing:error:${e.runtimeType}';
         }
+      } else {
+        txIdStatus = 'missing:remote-cooldown';
       }
     } catch (e) {
       txIdStatus = 'missing:error:${e.runtimeType}';
