@@ -26,6 +26,14 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Write signing key properties
+        run: |
+          mkdir -p android
+          echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}" > android/key.properties
+          echo "keyPassword=${{ secrets.KEYSTORE_KEY_PASSWORD }}" >> android/key.properties
+          echo "keyAlias=${{ secrets.KEYSTORE_KEY_ALIAS }}" >> android/key.properties
+          echo "storeFile=xplay-release.jks" >> android/key.properties
+
       - name: Build arm64 APK
         run: flutter build apk --release --target-platform android-arm64
 
