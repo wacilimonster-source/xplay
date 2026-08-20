@@ -366,7 +366,7 @@ class TwitterClient {
 
         await _waitForTurn();
         final response = await TwitterAccount.fetch(uri,
-            cacheDuration: const Duration(hours: 1));
+            cacheDuration: const Duration(minutes: 5));
         _releaseTurn();
 
         if (response.statusCode == 429) {
@@ -446,6 +446,12 @@ class TwitterClient {
             nextCursor == currentCursor) {
           AppLogger.log(
               'Timeline result [fetchFollowing]: stopping newFound=$newFound nextCursor=${nextCursor ?? 'null'} currentCursor=${currentCursor ?? 'null'} total=${allSubs.length}');
+          if (allSubs.isEmpty && entries.isNotEmpty) {
+            try {
+              AppLogger.log(
+                  'XFLOW DEBUG Following firstEntry=${jsonEncode(entries.first).length > 400 ? jsonEncode(entries.first).substring(0, 400) : jsonEncode(entries.first)}');
+            } catch (_) {}
+          }
           break;
         }
         AppLogger.log(

@@ -1,7 +1,7 @@
 name: xplay
 description: X/Twitter 媒体播放器，支持 TikTok 风格浏览
 publish_to: 'none'
-version: 0.01.9
+version: 0.01.10
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

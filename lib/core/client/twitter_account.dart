@@ -119,11 +119,10 @@ class TwitterAccount {
 
     // X requires x-xp-forwarded-for on SearchTimeline/Followers since 2026.
     // The AES key is derived from the session's guest_id cookie.
+    String? xpff;
     try {
       final guestId = _guestIdFromAccount();
-      final xpff = guestId == null
-          ? null
-          : XpForwardedFor.generate(guestId: guestId);
+      xpff = guestId == null ? null : XpForwardedFor.generate(guestId: guestId);
       if (xpff != null) {
         combinedHeaders['x-xp-forwarded-for'] = xpff;
       }
@@ -167,7 +166,7 @@ class TwitterAccount {
     }
 
     AppLogger.log(
-        'HTTP request start: $requestSummary account=${_currentAccount?.screenName ?? 'none'} txId=$txIdStatus');
+        'HTTP request start: $requestSummary account=${_currentAccount?.screenName ?? 'none'} txId=$txIdStatus xpff=${xpff == null ? 'missing' : 'ok'}');
     final stopwatch = Stopwatch()..start();
     final http.Response response;
     if (method == 'POST') {

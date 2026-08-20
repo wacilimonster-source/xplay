@@ -1,9 +1,9 @@
 {
-  "version": "0.01.9",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.9/app-release.apk",
+  "version": "0.01.10",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.10/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.9/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.10/app-release.apk"
   ],
-  "notes": "修复登录后订阅/媒体仍为空(关注列表解析兼容 core/legacy 两种响应结构);媒体与订阅页按登录态分流:未登录提示登录,已登录显示重试/同步关注列表;登录成功有提示。",
+  "notes": "调试版：关注列表强制刷新缓存并输出响应结构日志，排查登录后内容为空问题。",
   "publishedAt": "2026-08-20"
 }
