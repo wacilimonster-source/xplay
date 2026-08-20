@@ -1,9 +1,9 @@
 {
-  "version": "0.01.18",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.18/app-release.apk",
+  "version": "0.01.21",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/0.01.21/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.18/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/0.01.21/app-release.apk"
   ],
-  "notes": "话题页面HashtagMediaNotifier/HashtagListNotifier build()返回类型修复;订阅列表卡片重新设计(名称/用户名/简介/粉丝数/观看数清晰布局);详情页媒体改为每条一张完整卡片(文字+时间+统计);S1 SearchTimeline翻页HomeTimeline兜底降级;G2缓存写入自动收敛;M2翻页也跑发现管线。",
+  "notes": "修复详情页粉丝/关注数0显示;fetchFollowing补全description/followersCount/followingCount;过滤器UI移至内容源>高级获取;订阅流/用户详情/API/DB各层均按过滤器过滤视频/图片/文字。",
   "publishedAt": "2026-08-20"
 }

@@ -294,17 +294,28 @@ class TwitterClient {
           continue;
         }
 
-        final legacy = userRes['legacy'];
+        final legacy = userRes['legacy'] ??
+            userRes['user_results']?['result']?['legacy'] ??
+            userRes['core']?['user_results']?['result']?['legacy'];
+        if (legacy == null) {
+          AppLogger.log('Profile query returned user but no legacy fields');
+          continue;
+        }
+
+        final userId = userRes['rest_id'] ??
+            userRes['user_results']?['result']?['rest_id'];
+        final avatar = userRes['avatar']?['image_url'] ??
+            legacy['profile_image_url_https'] ??
+            userRes['user_results']?['result']?['avatar']?['image_url'];
         AppLogger.log('Successfully fetched profile for @$screenName');
         return Subscription(
-          id: userRes['rest_id'],
-          screenName: legacy?['screen_name'] ?? screenName,
-          name: legacy?['name'] ?? screenName,
-          profileImageUrl: userRes['avatar']?['image_url'] ??
-              legacy?['profile_image_url_https'],
-          description: legacy?['description'],
-          followersCount: legacy?['followers_count'],
-          followingCount: legacy?['friends_count'],
+          id: userId ?? screenName,
+          screenName: legacy['screen_name'] ?? screenName,
+          name: legacy['name'] ?? screenName,
+          profileImageUrl: avatar,
+          description: legacy['description'],
+          followersCount: legacy['followers_count'],
+          followingCount: legacy['friends_count'],
         );
       } catch (e) {
         AppLogger.log('Profile fetch failed for @$screenName with $path: $e');
@@ -468,11 +479,20 @@ final userResult =
               userResult["core"]?["user_results"]?["result"]?["legacy"]
                   ?["profile_image_url_https"];
 
+          final legacy = userResult["legacy"] ??
+              userResult["core"]?["user_results"]?["result"]?["legacy"];
+          final description = legacy?["description"] as String?;
+          final followersCount = legacy?["followers_count"] as int?;
+          final followingCount = legacy?["friends_count"] as int?;
+
           allSubs.add(Subscription(
             id: screenName,
             screenName: screenName,
             name: name,
             profileImageUrl: avatar,
+            description: description,
+            followersCount: followersCount,
+            followingCount: followingCount,
           ));
           newFound++;
         }
@@ -812,7 +832,8 @@ final userResult =
       {String? cursor,
       int cooldownMinutes = 15,
       int count = 20,
-      int timeoutSeconds = 15}) async {
+      int timeoutSeconds = 15,
+      Set<MediaFilter>? filters}) async {
     AppLogger.log(
         'Fetching user timeline for userId: $userId, cursor: $cursor');
     final variables = {
@@ -884,6 +905,9 @@ final userResult =
         // Use the deep-search parser so UserTweets structure changes
         // (e.g. missing timeline_v2) don't silently return empty.
         final tweetResponse = _parseAgnosticTimeline(data);
+        if (filters != null && filters.isNotEmpty) {
+          tweetResponse.tweets = _applyFilters(tweetResponse.tweets, filters);
+        }
         _logTimelineResult(
           'fetchUserTimeline',
           tweetResponse,
@@ -906,13 +930,13 @@ final userResult =
   }
 
   Future<TweetResponse> fetchUserTimelineByScreenName(String screenName,
-      {String? cursor, int cooldownMinutes = 15}) async {
+      {String? cursor, int cooldownMinutes = 15, Set<MediaFilter>? filters}) async {
     AppLogger.log(
         'Timeline request [fetchUserTimelineByScreenName]: screenName=$screenName cursor=${cursor ?? 'null'} cooldownMinutes=$cooldownMinutes');
     return fetchTrendingMedia(
       query: "from:$screenName",
       cursor: cursor,
-      filters: {}, // All content
+      filters: filters,
       cooldownMinutes: cooldownMinutes,
     );
   }

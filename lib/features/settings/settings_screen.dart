@@ -756,6 +756,24 @@ class SearchSettingsPage extends ConsumerWidget {
       appBar: AppBar(title: const Text('高级获取')),
       body: ListView(
         children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text('内容过滤', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Wrap(
+              spacing: 8.0,
+              children: MediaFilter.values
+                  .map((f) => FilterChip(
+                        label: Text(_getMediaFilterLabel(f)),
+                        selected: settings.filters.contains(f),
+                        onSelected: (_) => notifier.toggleFilter(f),
+                      ))
+                  .toList(),
+            ),
+          ),
+          const Divider(),
           SwitchListTile(
             title: const Text('严格订阅模式'),
             subtitle: const Text('禁用空查询时的趋势回退'),
@@ -815,6 +833,17 @@ class SearchSettingsPage extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  String _getMediaFilterLabel(MediaFilter filter) {
+    switch (filter) {
+      case MediaFilter.video:
+        return '视频';
+      case MediaFilter.image:
+        return '图片';
+      case MediaFilter.text:
+        return '文字';
+    }
   }
 }
 

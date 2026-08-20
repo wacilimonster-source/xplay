@@ -24,8 +24,9 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
     final screenName = arg.startsWith('@') ? arg.substring(1) : arg;
 
     // 1. Try to load from cache immediately to show SOMETHING
-    final cached =
-        await Repository.getUserCachedMedia(screenName, settings.loadBatchSize);
+    final cached = await Repository.getUserCachedMedia(
+        screenName, settings.loadBatchSize,
+        filters: settings.filters);
 
     // Trigger async fetch in the background
     _fetchFreshData(screenName, client, settings);
@@ -57,6 +58,7 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
         client,
         screenName,
         cooldownMinutes: settings.cooldownDuration,
+        filters: settings.filters,
       );
 
       if (response.tweets.isNotEmpty) {
@@ -117,6 +119,7 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
         screenName,
         cursor: currentState.cursorBottom,
         cooldownMinutes: settings.cooldownDuration,
+        filters: settings.filters,
       );
 
       final newTweets = response.tweets;
@@ -144,6 +147,7 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
     String screenName, {
     String? cursor,
     required int cooldownMinutes,
+    Set<MediaFilter>? filters,
   }) async {
     Subscription? profile;
     try {
@@ -161,6 +165,7 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
           userId,
           cursor: cursor,
           cooldownMinutes: cooldownMinutes,
+          filters: filters,
         );
         debugPrint(
             'XFLOW: UserTweets for $userId returned ${timelineResponse.tweets.length} tweets');
@@ -178,6 +183,7 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
       screenName,
       cursor: cursor,
       cooldownMinutes: cooldownMinutes,
+      filters: filters,
     );
     debugPrint(
         'XFLOW: SearchTimeline fallback for @$screenName returned ${fallback.tweets.length} tweets');
