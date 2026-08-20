@@ -877,15 +877,11 @@ final userResult =
           if (i < attemptPaths.length - 1) continue;
           return TweetResponse(tweets: []);
         }
-        final timeline =
-            data['data']?['user']?['result']?['timeline_v2']?['timeline'];
-        if (timeline == null) {
-          AppLogger.log('User timeline result is null for userId: $userId');
-          return TweetResponse(tweets: []);
-        }
 
         AppLogger.log('Successfully fetched user timeline for userId: $userId');
-        final tweetResponse = _parseTweets(timeline);
+        // Use the deep-search parser so UserTweets structure changes
+        // (e.g. missing timeline_v2) don't silently return empty.
+        final tweetResponse = _parseAgnosticTimeline(data);
         _logTimelineResult(
           'fetchUserTimeline',
           tweetResponse,

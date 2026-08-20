@@ -1,9 +1,9 @@
 {
-  "version": "0.01.14",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.14/app-release.apk",
+  "version": "0.01.15",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.15/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.14/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.15/app-release.apk"
   ],
-  "notes": "修复 txId 本地生成脚本页面导航后失效;远程兜底加冷却避免每次请求阻塞;修复请求队列异常时永久卡死的问题。",
+  "notes": "修复订阅用户详情页无媒体:用户时间线改用深度搜索解析器兼容 X 结构变化;增加取流路径诊断日志。",
   "publishedAt": "2026-08-20"
 }

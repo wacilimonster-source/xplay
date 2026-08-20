@@ -153,6 +153,8 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
     }
 
     final userId = profile?.id;
+    debugPrint(
+        'XFLOW: User media: profile=$profile userId=$userId cursor=${cursor ?? 'null'}');
     if (userId != null && userId.isNotEmpty) {
       try {
         final timelineResponse = await client.fetchUserTimeline(
@@ -160,6 +162,8 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
           cursor: cursor,
           cooldownMinutes: cooldownMinutes,
         );
+        debugPrint(
+            'XFLOW: UserTweets for $userId returned ${timelineResponse.tweets.length} tweets');
         if (timelineResponse.tweets.isNotEmpty || cursor != null) {
           return timelineResponse;
         }
@@ -170,11 +174,14 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
       }
     }
 
-    return client.fetchUserTimelineByScreenName(
+    final fallback = await client.fetchUserTimelineByScreenName(
       screenName,
       cursor: cursor,
       cooldownMinutes: cooldownMinutes,
     );
+    debugPrint(
+        'XFLOW: SearchTimeline fallback for @$screenName returned ${fallback.tweets.length} tweets');
+    return fallback;
   }
 }
 
