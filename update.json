@@ -1,9 +1,9 @@
 {
-  "version": "0.01.10",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.10/app-release.apk",
+  "version": "0.01.11",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.11/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.10/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.11/app-release.apk"
   ],
-  "notes": "调试版：关注列表强制刷新缓存并输出响应结构日志，排查登录后内容为空问题。",
+  "notes": "修复关注列表解析兼容 X 新版扁平响应结构;修复日志解码异常导致搜索请求被中断的问题。",
   "publishedAt": "2026-08-20"
 }

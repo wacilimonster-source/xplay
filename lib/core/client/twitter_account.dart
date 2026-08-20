@@ -41,7 +41,15 @@ class TwitterAccount {
   }
 
   static Object? _decodeLogValue(String value) {
-    final decoded = Uri.decodeQueryComponent(value);
+    String decoded;
+    try {
+      decoded = Uri.decodeQueryComponent(value);
+    } catch (_) {
+      // queryParameters are already decoded once; a second decode can fail
+      // when the value legitimately contains a stray '%'. Never let logging
+      // break an otherwise valid request.
+      decoded = value;
+    }
     try {
       return jsonDecode(decoded);
     } catch (_) {

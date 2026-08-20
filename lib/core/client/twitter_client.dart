@@ -365,8 +365,7 @@ class TwitterClient {
         );
 
         await _waitForTurn();
-        final response = await TwitterAccount.fetch(uri,
-            cacheDuration: const Duration(minutes: 5));
+        final response = await TwitterAccount.fetch(uri);
         _releaseTurn();
 
         if (response.statusCode == 429) {
@@ -411,32 +410,34 @@ class TwitterClient {
             continue;
           }
 
-          final userResult =
-              entry["content"]?["itemContent"]?["user_results"]?["result"];
+final userResult =
+            entry["content"]?["itemContent"]?["user_results"]?["result"];
           if (userResult == null) continue;
 
-          // X returns several shapes for Following user entries: plain
-          // `legacy`, `core` (with screen_name) or nested
-          // `core.user_results.result.legacy`. Accept all of them.
-          final core = userResult["core"];
-          final legacy = userResult["legacy"] ??
-              (core is Map<String, dynamic> && core["screen_name"] != null
-                  ? core
-                  : core?["user_results"]?["result"]?["legacy"]);
-          if (legacy == null) continue;
-
-          // Suspended / unauthenticated entries can have a null screen_name;
-          // skip them instead of crashing the whole timeline parse.
-          final screenName = legacy["screen_name"] as String?;
+          // X returns several shapes for Following user entries: flat
+          // (screen_name/name directly on the result), `legacy`, `core`
+          // (with screen_name) or nested `core.user_results.result.legacy`.
+          final screenName = (userResult["screen_name"] ??
+              userResult["legacy"]?["screen_name"] ??
+              userResult["core"]?["screen_name"] ??
+              userResult["core"]?["user_results"]?["result"]?["legacy"]
+                  ?["screen_name"]) as String?;
           if (screenName == null || screenName.isEmpty) continue;
+
+          final name = (userResult["name"] ??
+              userResult["legacy"]?["name"] ??
+              userResult["core"]?["name"] ??
+              '') as String? ?? '';
+          final avatar = userResult["avatar"]?["image_url"] ??
+              userResult["legacy"]?["profile_image_url_https"] ??
+              userResult["core"]?["user_results"]?["result"]?["legacy"]
+                  ?["profile_image_url_https"];
 
           allSubs.add(Subscription(
             id: screenName,
             screenName: screenName,
-            name: legacy["name"] ?? '',
-            profileImageUrl:
-                legacy["profile_image_url_https"] ??
-                    userResult["avatar"]?["image_url"],
+            name: name,
+            profileImageUrl: avatar,
           ));
           newFound++;
         }
