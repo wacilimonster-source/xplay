@@ -2,6 +2,7 @@ package com.xplay.app
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -22,6 +23,14 @@ class MainActivity : FlutterActivity() {
                             result.error("INVALID_PATH", "APK 路径为空", null)
                             return@setMethodCallHandler
                         }
+                        if (!canRequestInstallPackages()) {
+                            result.error(
+                                "INSTALL_PERMISSION_DENIED",
+                                "未授予安装未知应用权限",
+                                null,
+                            )
+                            return@setMethodCallHandler
+                        }
                         try {
                             installApk(File(path))
                             result.success(true)
@@ -29,9 +38,33 @@ class MainActivity : FlutterActivity() {
                             result.error("INSTALL_FAILED", error.message, null)
                         }
                     }
+                    "canRequestInstallPackages" -> {
+                        result.success(canRequestInstallPackages())
+                    }
+                    "openInstallPermissionSettings" -> {
+                        openInstallPermissionSettings()
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun canRequestInstallPackages(): Boolean =
+        packageManager.canRequestPackageInstalls()
+
+    private fun openInstallPermissionSettings() {
+        val intent = Intent(
+            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+            Uri.parse("package:$packageName"),
+        )
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            // 部分 ROM 不支持定向入口,退回应用信息页
+            val fallback = Intent(Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS)
+            startActivity(fallback)
+        }
     }
 
     private fun installApk(apk: File) {
