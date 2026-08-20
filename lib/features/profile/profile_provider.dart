@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/client/twitter_client.dart';
 import '../../core/database/repository.dart';
 import '../../core/database/entities.dart';
+import '../../core/utils/media_cache_manager.dart';
 import '../feed/feed_provider.dart'; // For FeedState
 import '../settings/settings_provider.dart';
 
@@ -23,16 +24,24 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
     final settings = ref.watch(settingsProvider);
     final screenName = arg.startsWith('@') ? arg.substring(1) : arg;
 
-    // 1. Try to load from cache immediately to show SOMETHING
+    // 1. Try to load from cache immediately to show SOMETHING.
+    // User detail filtering is intentionally independent from the home feed
+    // setting and defaults to disabled.
     final cached = await Repository.getUserCachedMedia(
         screenName, settings.loadBatchSize,
         filters: settings.filters);
+    final watched = settings.userDetailAvoidWatchedContent
+        ? await Repository.getWatchedIdentifiers()
+        : const <String>{};
+    final visibleCached = settings.userDetailAvoidWatchedContent
+        ? Repository.filterUnwatched(cached, watched)
+        : cached;
 
     // Trigger async fetch in the background
     _fetchFreshData(screenName, client, settings);
 
     return FeedState(
-      tweets: cached.map((t) => t.copyWith(source: 'Cache')).toList(),
+      tweets: visibleCached.map((t) => t.copyWith(source: 'Cache')).toList(),
       isRefreshing: true, // Mark as refreshing while we fetch
     );
   }
@@ -60,12 +69,20 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
         cooldownMinutes: settings.cooldownDuration,
         filters: settings.filters,
       );
+      final watched = settings.userDetailAvoidWatchedContent
+          ? await Repository.getWatchedIdentifiers()
+          : const <String>{};
+      final visibleTweets = settings.userDetailAvoidWatchedContent
+          ? Repository.filterUnwatched(response.tweets, watched)
+          : response.tweets;
 
       if (response.tweets.isNotEmpty) {
         await Repository.insertCachedMedia(response.tweets);
+        await CustomMediaCacheManager.enforceLimit(
+            settings.mediaCacheSizeMB);
 
         final freshTweets =
-            response.tweets.map((t) => t.copyWith(source: 'API')).toList();
+            visibleTweets.map((t) => t.copyWith(source: 'API')).toList();
 
         // Update state by MERGING to avoid jumps
         if (state.hasValue) {
@@ -122,9 +139,16 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
         filters: settings.filters,
       );
 
-      final newTweets = response.tweets;
-      if (newTweets.isNotEmpty) {
-        await Repository.insertCachedMedia(newTweets);
+      final watched = settings.userDetailAvoidWatchedContent
+          ? await Repository.getWatchedIdentifiers()
+          : const <String>{};
+      final newTweets = settings.userDetailAvoidWatchedContent
+          ? Repository.filterUnwatched(response.tweets, watched)
+          : response.tweets;
+      if (response.tweets.isNotEmpty) {
+        await Repository.insertCachedMedia(response.tweets);
+        await CustomMediaCacheManager.enforceLimit(
+            settings.mediaCacheSizeMB);
       }
 
       final seenIds = currentState.tweets.map((t) => t.id).toSet();

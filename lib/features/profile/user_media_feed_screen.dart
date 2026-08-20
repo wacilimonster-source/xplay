@@ -31,6 +31,7 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
   late PageController _pageController;
   late int _currentIndex;
   bool _initialized = false;
+  bool _poolUpdateQueued = false;
 
   @override
   void initState() {
@@ -71,8 +72,11 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
   }
 
   void _managePool() {
+    if (_poolUpdateQueued) return;
+    _poolUpdateQueued = true;
     // Use a microtask to avoid building-phase conflicts
     Future.microtask(() {
+      _poolUpdateQueued = false;
       if (!mounted) return;
       final feedAsync = ref.read(userMediaNotifierProvider(widget.screenName));
       final state = feedAsync.value;
@@ -154,6 +158,29 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
             onPressed: () => ref
                 .read(userMediaNotifierProvider(widget.screenName).notifier)
                 .refresh(),
+          ),
+          Consumer(
+            builder: (context, ref, child) {
+              final settings = ref.watch(settingsProvider);
+              return IconButton(
+                icon: Icon(
+                  settings.userDetailAvoidWatchedContent
+                      ? Icons.filter_alt
+                      : Icons.filter_alt_off,
+                  color: Colors.white,
+                ),
+                tooltip: settings.userDetailAvoidWatchedContent
+                    ? '已开启过滤已看内容'
+                    : '未过滤已看内容',
+                onPressed: () {
+                  ref
+                      .read(settingsProvider.notifier)
+                      .updateUserDetailAvoidWatchedContent(
+                          !settings.userDetailAvoidWatchedContent);
+                  ref.invalidate(userMediaNotifierProvider(widget.screenName));
+                },
+              );
+            },
           ),
           IconButton(
             icon: const Icon(Icons.settings_outlined, color: Colors.white),

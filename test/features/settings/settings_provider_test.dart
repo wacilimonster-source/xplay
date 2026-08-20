@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:xflow/features/settings/settings_provider.dart';
+import 'package:xplay/features/settings/settings_provider.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -12,6 +12,7 @@ void main() {
         'loadBatchSize': 30,
         'syncInterval': 10,
         'cooldownDuration': 5,
+        'userDetailAvoidWatchedContent': true,
       });
     });
 
@@ -29,7 +30,19 @@ void main() {
       expect(state.loadBatchSize, 30);
       expect(state.syncInterval, 10);
       expect(state.cooldownDuration, 5);
+      expect(state.userDetailAvoidWatchedContent, isTrue);
       expect(state.syncBatchSize, 10); // Default
+    });
+
+    test('defaults user detail watched filter to disabled', () async {
+      final container = ProviderContainer();
+      container.read(settingsProvider);
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      expect(
+        container.read(settingsProvider).userDetailAvoidWatchedContent,
+        isFalse,
+      );
     });
 
     test('updates and persists values', () async {
@@ -45,6 +58,13 @@ void main() {
 
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getInt('loadBatchSize'), 50);
+
+      notifier.updateUserDetailAvoidWatchedContent(true);
+      expect(
+        container.read(settingsProvider).userDetailAvoidWatchedContent,
+        isTrue,
+      );
+      expect(prefs.getBool('userDetailAvoidWatchedContent'), isTrue);
     });
   });
 }

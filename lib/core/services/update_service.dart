@@ -13,6 +13,9 @@ class UpdateService {
   static const String _lastCheckedKey = 'last_update_check';
   static const String _ignoredVersionsKey = 'ignored_update_versions';
   static const String _downloadFileName = 'xplay-update.apk';
+  static File? _downloadedApk;
+  static String? _downloadedVersion;
+  static bool _downloadInProgress = false;
 
   /// 拉取轻量更新清单。时间戳和 no-cache 用于绕过 GitHub/CDN 的旧缓存。
   static Future<UpdateInfo?> checkForUpdate({
@@ -76,33 +79,55 @@ class UpdateService {
     if (updateInfo.apkUrls.isEmpty) {
       throw const UpdateDownloadException('更新清单没有可用的 APK 地址');
     }
-
-    final directory = await getTemporaryDirectory();
-    final target = File('${directory.path}/$_downloadFileName');
-    Object? lastError;
-
-    for (var index = 0; index < updateInfo.apkUrls.length; index++) {
-      final url = updateInfo.apkUrls[index];
-      try {
-        await _downloadFromUrl(
-          url,
-          target,
-          onProgress: onProgress,
-          timeout: timeout,
-        );
-        return target;
-      } catch (error) {
-        lastError = error;
-        if (await target.exists()) {
-          await target.delete();
-        }
-        if (index < updateInfo.apkUrls.length - 1) {
-          await Future<void>.delayed(const Duration(milliseconds: 500));
-        }
-      }
+    if (_downloadInProgress) {
+      throw const UpdateDownloadException('更新正在下载中');
     }
 
-    throw UpdateDownloadException('所有下载源均失败：$lastError');
+    // Reserve the download slot before any asynchronous file checks so two
+    // callers cannot pass the guard at the same time.
+    _downloadInProgress = true;
+    try {
+      final cached = _downloadedApk;
+      if (_downloadedVersion == updateInfo.version &&
+          cached != null &&
+          await cached.exists() &&
+          await cached.length() > 0) {
+        final length = await cached.length();
+        onProgress?.call(length, length);
+        return cached;
+      }
+
+      final directory = await getTemporaryDirectory();
+      final target = File('${directory.path}/$_downloadFileName');
+      Object? lastError;
+
+      for (var index = 0; index < updateInfo.apkUrls.length; index++) {
+        final url = updateInfo.apkUrls[index];
+        try {
+          await _downloadFromUrl(
+            url,
+            target,
+            onProgress: onProgress,
+            timeout: timeout,
+          );
+          _downloadedApk = target;
+          _downloadedVersion = updateInfo.version;
+          return target;
+        } catch (error) {
+          lastError = error;
+          if (await target.exists()) {
+            await target.delete();
+          }
+          if (index < updateInfo.apkUrls.length - 1) {
+            await Future<void>.delayed(const Duration(milliseconds: 500));
+          }
+        }
+      }
+
+      throw UpdateDownloadException('所有下载源均失败：$lastError');
+    } finally {
+      _downloadInProgress = false;
+    }
   }
 
   static Future<void> _downloadFromUrl(
@@ -123,7 +148,10 @@ class UpdateService {
       final sink = target.openWrite();
       var received = 0;
       try {
-        await for (final chunk in streamed.stream) {
+        // Apply the timeout to the stream as well as the initial headers;
+        // otherwise a stalled connection can leave the dialog downloading
+        // forever after the request itself has already completed.
+        await for (final chunk in streamed.stream.timeout(timeout)) {
           received += chunk.length;
           sink.add(chunk);
           onProgress?.call(received, streamed.contentLength ?? -1);

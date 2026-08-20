@@ -1,9 +1,9 @@
 {
-  "version": "0.01.24",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/0.01.24/app-release.apk",
+  "version": "0.01.25",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/0.01.25/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/0.01.24/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/0.01.25/app-release.apk"
   ],
-  "notes": "过滤器语义反转:选中=屏蔽该类型内容;默认屏蔽图片和纯文本(默认只展示视频);UI增加说明文字。",
+  "notes": "SearchTimeline从GET改为POST修复404;增加404响应体诊断日志;过滤器语义反转选中=屏蔽;默认屏蔽图片和纯文本。",
   "publishedAt": "2026-08-20"
 }

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:xflow/core/client/discovery_engine.dart';
-import 'package:xflow/core/models/tweet.dart';
+import 'package:xplay/core/client/discovery_engine.dart';
+import 'package:xplay/core/models/tweet.dart';
 
 void main() {
   Tweet createTweet(String id, String handle, {String? mediaUrl}) {

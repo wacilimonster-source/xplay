@@ -44,16 +44,13 @@ class XFlowApp extends ConsumerWidget {
       if (next == AppLifecycle.resumed) {
         debugPrint('XFLOW: App resumed. Ensuring BackgroundSync is active.');
         TwitterClient.resetQueue();
-        BackgroundSync.restart(TwitterClient(), ref.read(settingsProvider));
+        BackgroundSync.updateSettings(
+            TwitterClient(), ref.read(settingsProvider));
       }
     });
 
     ref.listen(settingsProvider, (prev, next) {
-      if (prev?.syncInterval != next.syncInterval ||
-          prev?.syncBatchSize != next.syncBatchSize ||
-          prev?.pruneThreshold != next.pruneThreshold) {
-        BackgroundSync.restart(TwitterClient(), next);
-      }
+      BackgroundSync.updateSettings(TwitterClient(), next);
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -83,7 +80,7 @@ class XFlowApp extends ConsumerWidget {
         ),
         navigationBarTheme: NavigationBarThemeData(
           backgroundColor: Colors.black,
-          indicatorColor: Colors.blue.withOpacity(0.2),
+          indicatorColor: Colors.blue.withValues(alpha: 0.2),
           labelTextStyle: WidgetStateProperty.all(
             const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
           ),

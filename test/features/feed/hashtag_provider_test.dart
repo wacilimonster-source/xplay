@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:xflow/core/client/twitter_client.dart';
-import 'package:xflow/core/models/tweet.dart';
-import 'package:xflow/features/feed/feed_provider.dart';
-import 'package:xflow/features/feed/hashtag_provider.dart';
-import 'package:xflow/features/settings/settings_provider.dart';
+import 'package:xplay/core/client/twitter_client.dart';
+import 'package:xplay/core/models/tweet.dart';
+import 'package:xplay/features/feed/feed_provider.dart';
+import 'package:xplay/features/feed/hashtag_provider.dart';
+import 'package:xplay/features/settings/settings_provider.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

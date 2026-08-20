@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:xflow/core/client/transaction_id_service.dart';
+import 'package:xplay/core/client/transaction_id_service.dart';
 
 void main() {
   test('normalizeJavaScriptResult unwraps quoted values and nulls', () {

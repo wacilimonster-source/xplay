@@ -23,6 +23,7 @@ class TiktokFeedScreen extends ConsumerStatefulWidget {
 class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
   final PageController _pageController = PageController();
   int _currentIndex = 0;
+  bool _poolUpdateQueued = false;
 
   @override
   void initState() {
@@ -66,33 +67,39 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
   }
 
   void _managePool() {
-    try {
-      final feedAsync = ref.read(feedNotifierProvider);
-      final state = feedAsync.value;
-      if (state == null) return;
-      final tweets = state.tweets;
+    if (_poolUpdateQueued) return;
+    _poolUpdateQueued = true;
+    Future.microtask(() {
+      _poolUpdateQueued = false;
+      if (!mounted) return;
+      try {
+        final feedAsync = ref.read(feedNotifierProvider);
+        final state = feedAsync.value;
+        if (state == null) return;
+        final tweets = state.tweets;
 
-      final pool = ref.read(playerPoolProvider.notifier);
-      final activeIds = <String>{};
+        final pool = ref.read(playerPoolProvider.notifier);
+        final activeIds = <String>{};
 
-      for (int i = _currentIndex - 1; i <= _currentIndex + 3; i++) {
-        if (i >= 0 && i < tweets.length) {
-          final tweet = tweets[i];
-          activeIds.add(tweet.id);
+        for (int i = _currentIndex - 1; i <= _currentIndex + 3; i++) {
+          if (i >= 0 && i < tweets.length) {
+            final tweet = tweets[i];
+            activeIds.add(tweet.id);
 
-          if (tweet.isVideo && tweet.mediaUrls.isNotEmpty) {
-            pool.warmup(tweet.id, tweet.mediaUrls.first);
-          } else if (tweet.mediaUrls.isNotEmpty) {
-            for (final url in tweet.mediaUrls) {
-              precacheImage(NetworkImage(url), context);
+            if (tweet.isVideo && tweet.mediaUrls.isNotEmpty) {
+              pool.warmup(tweet.id, tweet.mediaUrls.first);
+            } else if (tweet.mediaUrls.isNotEmpty) {
+              for (final url in tweet.mediaUrls) {
+                precacheImage(NetworkImage(url), context);
+              }
             }
           }
         }
+        pool.cleanupExcept(activeIds);
+      } catch (e) {
+        debugPrint('XFLOW: Error in _managePool: $e');
       }
-      pool.cleanupExcept(activeIds);
-    } catch (e) {
-      debugPrint('XFLOW: Error in _managePool: $e');
-    }
+    });
   }
 
   @override

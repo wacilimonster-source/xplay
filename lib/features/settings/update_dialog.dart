@@ -83,6 +83,7 @@ class _UpdateDialogState extends State<UpdateDialog>
     try {
       await _channel.invokeMethod<bool>('openInstallPermissionSettings');
     } catch (_) {}
+    if (!mounted) return;
     setState(() {
       _waitingForPermission = true;
       _error = '请在系统设置中允许「安装未知应用」，返回后将自动继续安装。';
@@ -90,11 +91,12 @@ class _UpdateDialogState extends State<UpdateDialog>
   }
 
   Future<void> _downloadAndInstall() async {
-    if (_downloading) return;
+    if (_downloading || !mounted) return;
     if (!await _checkInstallPermission()) {
-      await _promptInstallPermission();
+      if (mounted) await _promptInstallPermission();
       return;
     }
+    if (!mounted) return;
     setState(() {
       _downloading = true;
       _progress = null;

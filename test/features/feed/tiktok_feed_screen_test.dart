@@ -3,10 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:xflow/features/feed/tiktok_feed_screen.dart';
-import 'package:xflow/features/feed/feed_provider.dart';
-import 'package:xflow/core/models/tweet.dart';
-import 'package:xflow/features/player/player_pool_provider.dart';
+import 'package:xplay/features/feed/tiktok_feed_screen.dart';
+import 'package:xplay/features/feed/feed_provider.dart';
+import 'package:xplay/core/models/tweet.dart';
+import 'package:xplay/features/player/player_pool_provider.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -57,7 +57,7 @@ class MockFeedNotifier extends FeedNotifier {
   FutureOr<FeedState> build() => mockState;
 
   @override
-  Future<void> fetchMore({int retryCount = 0}) async {}
+  Future<void> fetchMore() async {}
 }
 
 class MockPlayerPool extends PlayerPoolNotifier {

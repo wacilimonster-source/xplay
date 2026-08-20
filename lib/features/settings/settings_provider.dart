@@ -32,6 +32,9 @@ class SettingsState {
   // New Discovery Algorithm parameters
   final bool avoidWatchedContent;
   final bool unseenSubscriptionBoost;
+
+  // User detail page behavior
+  final bool userDetailAvoidWatchedContent;
   final double freshMixRatio;
   final int saturationThreshold;
   final int mediaSaturationThreshold;
@@ -78,6 +81,7 @@ class SettingsState {
     this.pruneThreshold = 50000,
     this.avoidWatchedContent = true,
     this.unseenSubscriptionBoost = true,
+    this.userDetailAvoidWatchedContent = false,
     this.freshMixRatio = 0.3,
     this.saturationThreshold = 2,
     this.mediaSaturationThreshold = 1,
@@ -119,6 +123,7 @@ class SettingsState {
     int? pruneThreshold,
     bool? avoidWatchedContent,
     bool? unseenSubscriptionBoost,
+    bool? userDetailAvoidWatchedContent,
     double? freshMixRatio,
     int? saturationThreshold,
     int? mediaSaturationThreshold,
@@ -160,6 +165,8 @@ class SettingsState {
       avoidWatchedContent: avoidWatchedContent ?? this.avoidWatchedContent,
       unseenSubscriptionBoost:
           unseenSubscriptionBoost ?? this.unseenSubscriptionBoost,
+      userDetailAvoidWatchedContent: userDetailAvoidWatchedContent ??
+          this.userDetailAvoidWatchedContent,
       freshMixRatio: freshMixRatio ?? this.freshMixRatio,
       saturationThreshold: saturationThreshold ?? this.saturationThreshold,
       mediaSaturationThreshold:
@@ -231,6 +238,8 @@ class SettingsNotifier extends Notifier<SettingsState> {
     final pruneThreshold = _prefs.getInt('pruneThreshold') ?? 50000;
 
     final avoidWatchedContent = _prefs.getBool('avoidWatchedContent') ?? true;
+    final userDetailAvoidWatchedContent =
+        _prefs.getBool('userDetailAvoidWatchedContent') ?? false;
     final unseenSubscriptionBoost =
         _prefs.getBool('unseenSubscriptionBoost') ?? true;
     final freshMixRatio = _prefs.getDouble('freshMixRatio') ?? 0.3;
@@ -281,6 +290,7 @@ class SettingsNotifier extends Notifier<SettingsState> {
       pruneThreshold: pruneThreshold,
       avoidWatchedContent: avoidWatchedContent,
       unseenSubscriptionBoost: unseenSubscriptionBoost,
+      userDetailAvoidWatchedContent: userDetailAvoidWatchedContent,
       freshMixRatio: freshMixRatio,
       saturationThreshold: saturationThreshold,
       mediaSaturationThreshold: mediaSaturationThreshold,
@@ -346,6 +356,11 @@ class SettingsNotifier extends Notifier<SettingsState> {
   void updatePruneThreshold(int count) {
     state = state.copyWith(pruneThreshold: count);
     _prefs.setInt('pruneThreshold', count);
+  }
+
+  void updateUserDetailAvoidWatchedContent(bool enabled) {
+    state = state.copyWith(userDetailAvoidWatchedContent: enabled);
+    _prefs.setBool('userDetailAvoidWatchedContent', enabled);
   }
 
   void updateDiscoveryParam({

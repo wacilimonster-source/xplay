@@ -2,12 +2,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:xflow/features/profile/profile_provider.dart';
-import 'package:xflow/features/feed/feed_provider.dart';
-import 'package:xflow/core/client/twitter_client.dart';
-import 'package:xflow/core/database/entities.dart';
-import 'package:xflow/core/database/repository.dart';
-import 'package:xflow/core/models/tweet.dart';
+import 'package:xplay/features/profile/profile_provider.dart';
+import 'package:xplay/features/feed/feed_provider.dart';
+import 'package:xplay/core/client/twitter_client.dart';
+import 'package:xplay/core/database/entities.dart';
+import 'package:xplay/core/database/repository.dart';
+import 'package:xplay/core/models/tweet.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

@@ -74,6 +74,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     MaterialPageRoute(
                         builder: (c) => const DiscoverySettingsPage())),
               ),
+              _SettingsTile(
+                icon: Icons.person_search_outlined,
+                title: '用户详情页',
+                subtitle: '单独控制是否过滤已看内容',
+                onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (c) => const UserDetailSettingsPage())),
+              ),
             ],
           ),
           _SettingsGroup(
@@ -439,6 +448,32 @@ class PlaybackSettingsPage extends ConsumerWidget {
             divisions: 10,
             onChanged: (val) =>
                 notifier.updateDiscoveryParam(freshMixRatio: val),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class UserDetailSettingsPage extends ConsumerWidget {
+  const UserDetailSettingsPage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(settingsProvider);
+    final notifier = ref.read(settingsProvider.notifier);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('用户详情页设置')),
+      body: ListView(
+        children: [
+          SwitchListTile(
+            title: const Text('过滤已看内容'),
+            subtitle: const Text('仅影响用户详情页，默认关闭'),
+            value: settings.userDetailAvoidWatchedContent,
+            onChanged: (value) {
+              notifier.updateUserDetailAvoidWatchedContent(value);
+            },
           ),
         ],
       ),

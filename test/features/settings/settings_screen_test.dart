@@ -2,14 +2,32 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:xflow/features/settings/settings_screen.dart';
-import 'package:xflow/features/settings/settings_provider.dart';
+import 'package:xplay/features/settings/settings_screen.dart';
+import 'package:xplay/features/settings/settings_provider.dart';
 
 void main() {
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
 
   group('SettingsScreen Widget Tests', () {
+    testWidgets('user detail setting defaults to disabled', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            settingsProvider.overrideWith(() => MockSettingsNotifier()),
+          ],
+          child: const MaterialApp(
+            home: UserDetailSettingsPage(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+      final tile = tester.widget<SwitchListTile>(find.byType(SwitchListTile));
+      expect(tile.value, isFalse);
+    });
     testWidgets('renders all settings options', (WidgetTester tester) async {
       await tester.runAsync(() async {
         await tester.pumpWidget(
@@ -91,6 +109,11 @@ class MockSettingsNotifier extends SettingsNotifier {
   @override
   void updateMediaCacheSize(int megabytes) {
     state = state.copyWith(mediaCacheSizeMB: megabytes);
+  }
+
+  @override
+  void updateUserDetailAvoidWatchedContent(bool enabled) {
+    state = state.copyWith(userDetailAvoidWatchedContent: enabled);
   }
 
   @override

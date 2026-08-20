@@ -46,6 +46,7 @@ class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
   HashtagMediaNotifier(this.arg);
   final String arg;
   String? _activeQuery;
+  FeedSort _activeSort = FeedSort.trending;
 
   @override
   Future<FeedState> build() async {
@@ -64,6 +65,7 @@ class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
       sort: FeedSort.trending,
     );
     _activeQuery = mediaQuery;
+    _activeSort = FeedSort.trending;
 
     if (response.tweets.isEmpty) {
       response = await client.fetchTrendingMedia(
@@ -71,6 +73,7 @@ class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
         count: settings.timelineBatchSize,
         sort: FeedSort.latest,
       );
+      _activeSort = FeedSort.latest;
     }
 
     if (response.tweets.isEmpty) {
@@ -80,6 +83,7 @@ class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
         sort: FeedSort.latest,
       );
       _activeQuery = plainQuery;
+      _activeSort = FeedSort.latest;
     }
 
     final filteredTweets = Repository.filterUnwatched(response.tweets, watched);
@@ -117,7 +121,7 @@ class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
         query: query,
         cursor: currentState.cursorBottom,
         count: settings.loadBatchSize,
-        sort: FeedSort.latest,
+        sort: _activeSort,
       );
 
       final seenIds = currentState.tweets.map((t) => t.id).toSet();

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:xflow/core/client/twitter_account.dart';
+import 'package:xplay/core/client/twitter_account.dart';
 
 void main() {
   test('compactForLog flattens whitespace and truncates long values', () {

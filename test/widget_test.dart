@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:xflow/main.dart';
-import 'package:xflow/core/client/background_sync.dart';
+import 'package:xplay/main.dart';
+import 'package:xplay/core/client/background_sync.dart';
 
 void main() {
   sqfliteFfiInit();

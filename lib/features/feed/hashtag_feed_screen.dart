@@ -148,6 +148,7 @@ class _HashtagMediaFeedScreenState
     extends ConsumerState<HashtagMediaFeedScreen> {
   final PageController _pageController = PageController();
   int _currentIndex = 0;
+  bool _poolUpdateQueued = false;
 
   @override
   void initState() {
@@ -189,7 +190,10 @@ class _HashtagMediaFeedScreenState
   }
 
   void _managePool() {
+    if (_poolUpdateQueued) return;
+    _poolUpdateQueued = true;
     Future.microtask(() {
+      _poolUpdateQueued = false;
       if (!mounted) return;
       final feedAsync = ref.read(hashtagMediaProvider(widget.hashtag));
       final state = feedAsync.value;

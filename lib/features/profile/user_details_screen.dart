@@ -53,6 +53,19 @@ class UserDetailsScreen extends ConsumerWidget {
                         settingsNotifier.toggleListView(!settings.isListView),
                   ),
                   IconButton(
+                    icon: Icon(settings.userDetailAvoidWatchedContent
+                        ? Icons.filter_alt
+                        : Icons.filter_alt_off),
+                    tooltip: settings.userDetailAvoidWatchedContent
+                        ? '已开启过滤已看内容'
+                        : '未过滤已看内容',
+                    onPressed: () {
+                      settingsNotifier.updateUserDetailAvoidWatchedContent(
+                          !settings.userDetailAvoidWatchedContent);
+                      ref.invalidate(userMediaNotifierProvider(screenName));
+                    },
+                  ),
+                  IconButton(
                     icon: const Icon(Icons.settings_outlined),
                     onPressed: () => Navigator.push(
                       context,

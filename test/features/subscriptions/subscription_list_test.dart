@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:xflow/features/subscriptions/subscription_list_screen.dart';
-import 'package:xflow/core/database/entities.dart';
+import 'package:xplay/features/subscriptions/subscription_list_screen.dart';
+import 'package:xplay/core/database/entities.dart';
 
 void main() {
   group('SubscriptionListScreen Widget Tests', () {

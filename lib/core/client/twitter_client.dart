@@ -19,6 +19,13 @@ class TweetResponse {
 }
 
 class TwitterClient {
+  static String _queryIdFromPath(String path) {
+    const prefix = '/graphql/';
+    final start = path.startsWith(prefix) ? prefix.length : 0;
+    final end = path.indexOf('/', start);
+    return path.substring(start, end == -1 ? path.length : end);
+  }
+
   // Rate limiting prevention
   static bool _isRequestInProgress = false;
   static DateTime? _rateLimitResetTime;
@@ -579,11 +586,13 @@ final userResult =
     if (cursor != null) variables['cursor'] = cursor;
 
     Uri buildSearchTimelineUri(String path) =>
-        Uri.https('x.com', '/i/api$path', {
-          'variables': jsonEncode(variables),
-          'features': jsonEncode(searchTimelineFeatures),
-          'fieldToggles': jsonEncode(searchTimelineFieldToggles),
-        });
+        Uri.https('x.com', '/i/api$path');
+
+    final postBody = jsonEncode({
+      'variables': variables,
+      'features': searchTimelineFeatures,
+      'fieldToggles': searchTimelineFieldToggles,
+    });
 
     try {
       final attemptPaths = QueryIdResolver.candidatePaths('SearchTimeline');
@@ -607,7 +616,7 @@ final userResult =
         await _waitForTurn();
         late final http.Response response;
         try {
-          response = await TwitterAccount.fetch(uri)
+          response = await TwitterAccount.fetch(uri, method: 'POST', body: postBody)
               .timeout(Duration(seconds: timeoutSeconds));
         } finally {
           _releaseTurn();
@@ -619,7 +628,7 @@ final userResult =
         }
         if (response.statusCode == 404 && i < attemptPaths.length - 1) {
           AppLogger.log(
-              'SearchTimeline returned 404 for $path. Retrying with alternate operation id.');
+              'SearchTimeline 404 for $path body=${response.body.isEmpty ? "(empty)" : response.body.substring(0, response.body.length.clamp(0, 200))}');
           continue;
         }
         if (response.statusCode != 200) {
@@ -942,49 +951,63 @@ final userResult =
   }
 
   Future<bool> favoriteTweet(String tweetId) async {
-    final uri = Uri.https('x.com', '/i/api${QueryIdResolver.pathFor('FavoriteTweet')}');
+    final paths = QueryIdResolver.candidatePaths('FavoriteTweet');
     final variables = {"tweet_id": tweetId};
 
-    try {
-      AppLogger.log('Favoriting tweet: $tweetId');
-      await _waitForTurn();
-      final response = await TwitterAccount.fetch(uri,
+    for (var i = 0; i < paths.length; i++) {
+      final path = paths[i];
+      final uri = Uri.https('x.com', '/i/api$path');
+      try {
+        AppLogger.log('Favoriting tweet: $tweetId attempt=${i + 1}');
+        await _waitForTurn();
+        final response = await TwitterAccount.fetch(
+          uri,
           method: 'POST',
           body: jsonEncode({
             "variables": variables,
-            "queryId": QueryIdResolver.idFor('FavoriteTweet') ?? 'lI07N6Otwv1PhnEgXILM7A'
-          }));
-
-      return response.statusCode == 200;
-    } catch (e) {
-      AppLogger.log('Error favoriting tweet: $e');
-      return false;
-    } finally {
-      _releaseTurn();
+            "queryId": _queryIdFromPath(path),
+          }),
+        );
+        if (response.statusCode == 404 && i < paths.length - 1) continue;
+        return response.statusCode == 200;
+      } catch (e) {
+        AppLogger.log('Error favoriting tweet: $e');
+        if (i == paths.length - 1) return false;
+      } finally {
+        _releaseTurn();
+      }
     }
+    return false;
   }
 
   Future<bool> unfavoriteTweet(String tweetId) async {
-    final uri = Uri.https('x.com', '/i/api${QueryIdResolver.pathFor('UnfavoriteTweet')}');
+    final paths = QueryIdResolver.candidatePaths('UnfavoriteTweet');
     final variables = {"tweet_id": tweetId};
 
-    try {
-      AppLogger.log('Unfavoriting tweet: $tweetId');
-      await _waitForTurn();
-      final response = await TwitterAccount.fetch(uri,
+    for (var i = 0; i < paths.length; i++) {
+      final path = paths[i];
+      final uri = Uri.https('x.com', '/i/api$path');
+      try {
+        AppLogger.log('Unfavoriting tweet: $tweetId attempt=${i + 1}');
+        await _waitForTurn();
+        final response = await TwitterAccount.fetch(
+          uri,
           method: 'POST',
           body: jsonEncode({
             "variables": variables,
-            "queryId": QueryIdResolver.idFor('UnfavoriteTweet') ?? 'ZYKSe-w7KEslx3JhSIk5LA'
-          }));
-
-      return response.statusCode == 200;
-    } catch (e) {
-      AppLogger.log('Error unfavoriting tweet: $e');
-      return false;
-    } finally {
-      _releaseTurn();
+            "queryId": _queryIdFromPath(path),
+          }),
+        );
+        if (response.statusCode == 404 && i < paths.length - 1) continue;
+        return response.statusCode == 200;
+      } catch (e) {
+        AppLogger.log('Error unfavoriting tweet: $e');
+        if (i == paths.length - 1) return false;
+      } finally {
+        _releaseTurn();
+      }
     }
+    return false;
   }
 
   Future<TweetResponse> fetchTweetDetail(String focalTweetId,
@@ -1001,43 +1024,56 @@ final userResult =
     };
     if (cursor != null) variables["cursor"] = cursor;
 
-    final uri = Uri.https('x.com', '/i/api${QueryIdResolver.pathFor('TweetDetail')}', {
-      'variables': jsonEncode(variables),
-      'features': jsonEncode(defaultFeatures),
-    });
+    final paths = QueryIdResolver.candidatePaths('TweetDetail');
+    for (var i = 0; i < paths.length; i++) {
+      final path = paths[i];
+      final uri = Uri.https('x.com', '/i/api$path', {
+        'variables': jsonEncode(variables),
+        'features': jsonEncode(defaultFeatures),
+      });
 
-    try {
-      _logTimelineRequest(
-        'fetchTweetDetail',
-        uri,
-        context: {
-          'focalTweetId': focalTweetId,
-          'cursor': cursor,
-        },
-      );
-      await _waitForTurn();
-      final response = await TwitterAccount.fetch(uri);
+      try {
+        _logTimelineRequest(
+          'fetchTweetDetail',
+          uri,
+          context: {
+            'focalTweetId': focalTweetId,
+            'cursor': cursor,
+            'attempt': i + 1,
+            'operationPath': path,
+          },
+        );
+        await _waitForTurn();
+        final response = await TwitterAccount.fetch(uri);
 
-      if (response.statusCode != 200) return TweetResponse(tweets: []);
-      final result = json.decode(response.body);
+        if (response.statusCode == 404 && i < paths.length - 1) continue;
+        if (response.statusCode != 200) return TweetResponse(tweets: []);
+        final result = json.decode(response.body);
+        if (result['data'] == null || result['errors'] != null) {
+          if (i < paths.length - 1) continue;
+          return TweetResponse(tweets: []);
+        }
 
-      // Agnostic parser can handle the nested instructions in TweetDetail
-      final tweetResponse = _parseAgnosticTimeline(result);
-      _logTimelineResult(
-        'fetchTweetDetail',
-        tweetResponse,
-        context: {
-          'focalTweetId': focalTweetId,
-          'cursor': cursor,
-        },
-      );
-      return tweetResponse;
-    } catch (e) {
-      AppLogger.log('Error fetching tweet detail: $e');
-      return TweetResponse(tweets: []);
-    } finally {
-      _releaseTurn();
+        final tweetResponse = _parseAgnosticTimeline(result);
+        _logTimelineResult(
+          'fetchTweetDetail',
+          tweetResponse,
+          context: {
+            'focalTweetId': focalTweetId,
+            'cursor': cursor,
+            'attempt': i + 1,
+            'operationPath': path,
+          },
+        );
+        return tweetResponse;
+      } catch (e) {
+        AppLogger.log('Error fetching tweet detail: $e');
+        if (i == paths.length - 1) return TweetResponse(tweets: []);
+      } finally {
+        _releaseTurn();
+      }
     }
+    return TweetResponse(tweets: []);
   }
 
   Future<TweetResponse> fetchVideoMixer({
