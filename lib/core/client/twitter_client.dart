@@ -419,9 +419,14 @@ class TwitterClient {
             userResult["core"]?["user_results"]?["result"]?["legacy"];
           if (legacy == null) continue;
 
+          // Suspended / unauthenticated entries can have a null screen_name;
+          // skip them instead of crashing the whole timeline parse.
+          final screenName = legacy["screen_name"] as String?;
+          if (screenName == null || screenName.isEmpty) continue;
+
           allSubs.add(Subscription(
-            id: legacy["screen_name"],
-            screenName: legacy["screen_name"],
+            id: screenName,
+            screenName: screenName,
             name: legacy["name"] ?? '',
             profileImageUrl:
                 legacy["profile_image_url_https"] ??

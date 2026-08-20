@@ -8,7 +8,9 @@ import '../../core/services/update_service.dart';
 import 'update_dialog.dart';
 import '../feed/feed_provider.dart';
 import '../subscriptions/subscription_import_screen.dart';
+import '../subscriptions/subscription_list_screen.dart';
 import 'log_viewer_screen.dart';
+import '../auth/login_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -41,6 +43,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final account = ref.watch(accountProvider);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('设置'),
@@ -151,10 +155,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onTap: () => _checkForUpdate(context),
               ),
               _SettingsTile(
-                icon: Icons.logout,
-                title: '退出登录',
-                titleColor: Colors.redAccent,
+                icon: account == null ? Icons.login : Icons.logout,
+                title: account == null ? '登录' : '退出登录',
+                subtitle: account == null ? '登录 X 账号以同步订阅与内容' : null,
+                titleColor: account == null ? null : Colors.redAccent,
                 onTap: () async {
+                  if (account == null) {
+                    final success = await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (c) => const LoginScreen()),
+                    );
+                    if (success == true) {
+                      ref.invalidate(feedNotifierProvider);
+                      ref.invalidate(subscriptionListProvider);
+                    }
+                    return;
+                  }
                   final navigator = Navigator.of(context);
                   await ref.read(accountProvider.notifier).logout();
                   if (!mounted) return;

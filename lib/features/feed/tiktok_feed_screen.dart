@@ -9,7 +9,6 @@ import '../../core/database/repository.dart';
 import '../settings/settings_screen.dart';
 import '../settings/settings_provider.dart';
 import '../auth/login_screen.dart';
-import '../../core/client/account_provider.dart';
 import '../../core/navigation/navigation_provider.dart';
 import 'widgets/tweet_text_overlay.dart';
 
@@ -97,8 +96,6 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final account = ref.watch(accountProvider);
-
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -124,12 +121,6 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
           ],
         ),
         actions: [
-          if (account == null)
-            TextButton.icon(
-              onPressed: () => _goToLogin(),
-              icon: const Icon(Icons.login),
-              label: const Text('登录'),
-            ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => Navigator.push(
