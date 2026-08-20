@@ -1,9 +1,9 @@
 {
-  "version": "0.01.8",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.8/app-release.apk",
+  "version": "0.01.9",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.9/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.8/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.9/app-release.apk"
   ],
-  "notes": "修复登录后媒体仍为空：关注列表解析遇无 screen_name 条目崩溃问题；媒体页登录入口移至中间按钮，设置页未登录时显示登录入口。",
+  "notes": "修复登录后订阅/媒体仍为空(关注列表解析兼容 core/legacy 两种响应结构);媒体与订阅页按登录态分流:未登录提示登录,已登录显示重试/同步关注列表;登录成功有提示。",
   "publishedAt": "2026-08-20"
 }

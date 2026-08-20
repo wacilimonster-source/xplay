@@ -9,6 +9,7 @@ import '../../core/database/repository.dart';
 import '../settings/settings_screen.dart';
 import '../settings/settings_provider.dart';
 import '../auth/login_screen.dart';
+import '../../core/client/account_provider.dart';
 import '../../core/navigation/navigation_provider.dart';
 import 'widgets/tweet_text_overlay.dart';
 
@@ -210,22 +211,35 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
   }
 
   Widget _buildNoItemsState() {
+    final account = ref.watch(accountProvider);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('未找到媒体内容', style: TextStyle(color: Colors.white70)),
-          const SizedBox(height: 16),
-          FilledButton.tonal(
-            onPressed: () => _goToLogin(),
-            child: const Text('登录 X'),
+          Text(
+            account == null ? '未找到媒体内容' : '未找到媒体内容，请稍后重试',
+            style: const TextStyle(color: Colors.white70),
           ),
+          const SizedBox(height: 16),
+          if (account == null)
+            FilledButton.tonal(
+              onPressed: () => _goToLogin(),
+              child: const Text('登录 X'),
+            )
+          else
+            FilledButton.tonal(
+              onPressed: () {
+                ref.read(feedNotifierProvider.notifier).refresh();
+              },
+              child: const Text('重试'),
+            ),
         ],
       ),
     );
   }
 
   Widget _buildErrorState(Object e) {
+    final account = ref.watch(accountProvider);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -234,10 +248,11 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
               style: const TextStyle(color: Colors.white70),
               textAlign: TextAlign.center),
           const SizedBox(height: 16),
-          FilledButton.tonal(
-            onPressed: () => _goToLogin(),
-            child: const Text('登录 X'),
-          ),
+          if (account == null)
+            FilledButton.tonal(
+              onPressed: () => _goToLogin(),
+              child: const Text('登录 X'),
+            ),
           TextButton(
             onPressed: () => ref.invalidate(feedNotifierProvider),
             child: const Text('重试'),
@@ -254,6 +269,12 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
     );
     if (success == true) {
       ref.invalidate(feedNotifierProvider);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('登录成功，正在拉取关注列表与媒体内容，请稍候…'),
+        ),
+      );
     }
   }
 }

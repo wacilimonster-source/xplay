@@ -9,6 +9,8 @@ import '../profile/user_details_screen.dart';
 import '../../core/navigation/navigation_provider.dart';
 import '../settings/settings_screen.dart';
 import '../../core/client/account_provider.dart';
+import '../../core/client/twitter_client.dart';
+import '../../core/client/twitter_account.dart';
 import '../auth/login_screen.dart';
 
 enum SubscriptionSort {
@@ -216,6 +218,29 @@ class SubscriptionListScreen extends ConsumerWidget {
                         MaterialPageRoute(builder: (c) => const LoginScreen())),
                     child: const Text('登录 X'),
                   ),
+                ] else ...[
+                  const SizedBox(height: 16),
+                  FilledButton.tonal(
+                    onPressed: () async {
+                      final current = TwitterAccount.currentAccount;
+                      if (current == null || current.restId.isEmpty) return;
+                      final messenger = ScaffoldMessenger.of(context);
+                      final client = TwitterClient();
+                      final subs = await client.fetchFollowing(
+                        current.restId,
+                        cooldownMinutes: 1,
+                      );
+                      if (subs.isNotEmpty) {
+                        await Repository.insertSubscriptions(subs);
+                      }
+                      ref.invalidate(subscriptionListProvider);
+                      messenger.showSnackBar(SnackBar(
+                        content: Text(
+                            subs.isEmpty ? '同步失败，请稍后重试' : '已同步 ${subs.length} 个关注账号'),
+                      ));
+                    },
+                    child: const Text('同步关注列表'),
+                  ),
                 ],
               ],
             ),
@@ -317,7 +342,6 @@ class SubscriptionListScreen extends ConsumerWidget {
 
   Widget _buildSearchAndSort(BuildContext context, WidgetRef ref) {
     final notifier = ref.read(subscriptionListProvider.notifier);
-    final state = ref.watch(subscriptionListProvider);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),

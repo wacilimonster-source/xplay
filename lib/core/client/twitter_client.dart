@@ -415,8 +415,14 @@ class TwitterClient {
               entry["content"]?["itemContent"]?["user_results"]?["result"];
           if (userResult == null) continue;
 
+          // X returns several shapes for Following user entries: plain
+          // `legacy`, `core` (with screen_name) or nested
+          // `core.user_results.result.legacy`. Accept all of them.
+          final core = userResult["core"];
           final legacy = userResult["legacy"] ??
-            userResult["core"]?["user_results"]?["result"]?["legacy"];
+              (core is Map<String, dynamic> && core["screen_name"] != null
+                  ? core
+                  : core?["user_results"]?["result"]?["legacy"]);
           if (legacy == null) continue;
 
           // Suspended / unauthenticated entries can have a null screen_name;
