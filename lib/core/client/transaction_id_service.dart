@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../features/auth/login_screen.dart';
+import '../../features/feed/feed_provider.dart';
 import '../utils/app_logger.dart';
 import 'account_provider.dart';
 import 'query_id_resolver.dart';
@@ -180,6 +181,11 @@ class _TransactionIdWebViewHostState
       await controller.loadRequest(Uri.parse(LoginScreen.homeUrl));
       AppLogger.log('XFLOW: Query-ID capture sequence complete. '
           'Known ops: ${QueryIdResolver.all.keys.join(', ')}');
+      // Capture completed with fresh IDs — refresh the feed so it re-fetches with new IDs.
+      // Using ref.invalidate on autoDispose provider triggers one fresh fetch without blocking current playback.
+      if (mounted) {
+        ref.invalidate(feedNotifierProvider);
+      }
     } catch (e) {
       AppLogger.log('XFLOW: Query-ID capture sequence failed: $e');
     }
