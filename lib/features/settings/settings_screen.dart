@@ -757,8 +757,12 @@ class SearchSettingsPage extends ConsumerWidget {
       body: ListView(
         children: [
           const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
             child: Text('内容过滤', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text('选中 = 屏蔽该类型内容，默认屏蔽图片和纯文本', style: TextStyle(fontSize: 12, color: Colors.grey)),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
