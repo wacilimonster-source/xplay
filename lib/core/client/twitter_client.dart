@@ -1395,6 +1395,8 @@ final userResult =
       String? thumbnailUrl;
       String? mediaKey;
       bool isVideo = false;
+      int? mediaWidth;
+      int? mediaHeight;
 
       if (allMedia.isNotEmpty && allMedia.first['media_url_https'] != null) {
         thumbnailUrl = allMedia.first['media_url_https'];
@@ -1402,6 +1404,33 @@ final userResult =
       }
 
       for (final m in allMedia) {
+        // Capture dimensions from first media item
+        if (mediaWidth == null) {
+          // Video: use video_info.width/height or aspect ratio
+          if (m['video_info'] != null) {
+            final vi = m['video_info'];
+            mediaWidth = vi['width'] ?? vi['original_img_width'];
+            mediaHeight = vi['height'] ?? vi['original_img_height'];
+            // Fall back to aspect ratio [w, h]
+            if (mediaWidth == null && vi['aspect'] != null) {
+              final aspect = vi['aspect'];
+              if (aspect is List && aspect.length >= 2) {
+                mediaWidth = aspect[0];
+                mediaHeight = aspect[1];
+              }
+            }
+          }
+          // Photo: use original_img_width/height or sizes.large
+          if (mediaWidth == null && m['original_img_width'] != null) {
+            mediaWidth = m['original_img_width'];
+            mediaHeight = m['original_img_height'];
+          }
+          if (mediaWidth == null && m['sizes']?['large'] != null) {
+            mediaWidth = m['sizes']['large']['w'];
+            mediaHeight = m['sizes']['large']['h'];
+          }
+        }
+
         if (m['type'] == 'video' || m['type'] == 'animated_gif') {
           isVideo = true;
           final variants = List.from(m['video_info']?['variants'] ?? []);
@@ -1458,6 +1487,8 @@ final userResult =
         isLiked: legacy['favorited'] ?? false,
         favoriteCount: legacy['favorite_count'] ?? 0,
         replyCount: legacy['reply_count'] ?? 0,
+        mediaWidth: mediaWidth,
+        mediaHeight: mediaHeight,
       ));
     } catch (e) {
       AppLogger.log('Error in parseTweetResult for $entryId: $e');

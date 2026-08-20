@@ -323,7 +323,7 @@ class SubscriptionListScreen extends ConsumerWidget {
             ),
         ],
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(110),
+          preferredSize: const Size.fromHeight(130),
           child: _buildSearchAndSort(context, ref),
         ),
       ),
@@ -373,47 +373,52 @@ class SubscriptionSortSettings extends ConsumerWidget {
     final state = ref.watch(subscriptionListProvider);
     final notifier = ref.read(subscriptionListProvider.notifier);
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          _SortChip(
+    return Row(
+      children: [
+        Expanded(
+          child: _SortChip(
             label: '名称',
             isSelected: state.sort == SubscriptionSort.name,
             onTap: () => notifier.setSort(SubscriptionSort.name),
           ),
-          const SizedBox(width: 8),
-          _SortChip(
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _SortChip(
             label: '用户名',
             isSelected: state.sort == SubscriptionSort.handle,
             onTap: () => notifier.setSort(SubscriptionSort.handle),
           ),
-          const SizedBox(width: 8),
-          _SortChip(
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _SortChip(
             label: '粉丝数',
             isSelected: state.sort == SubscriptionSort.followers,
             onTap: () => notifier.setSort(SubscriptionSort.followers),
           ),
-          const SizedBox(width: 8),
-          _SortChip(
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _SortChip(
             label: '观看数',
             isSelected: state.sort == SubscriptionSort.views,
             onTap: () => notifier.setSort(SubscriptionSort.views),
           ),
-          const SizedBox(width: 8),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            icon: Icon(
-              state.isAscending ? Icons.arrow_upward : Icons.arrow_downward,
-              color: Theme.of(context).colorScheme.primary,
-              size: 20,
-            ),
-            onPressed: notifier.toggleOrder,
-            tooltip: state.isAscending ? '升序' : '降序',
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          icon: Icon(
+            state.isAscending ? Icons.arrow_upward : Icons.arrow_downward,
+            color: Theme.of(context).colorScheme.primary,
+            size: 20,
           ),
-        ],
-      ),
+          onPressed: notifier.toggleOrder,
+          tooltip: state.isAscending ? '升序' : '降序',
+        ),
+      ],
     );
   }
 }

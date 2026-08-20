@@ -1,9 +1,9 @@
 {
-  "version": "0.01.15",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.15/app-release.apk",
+  "version": "0.01.16",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.16/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.15/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.16/app-release.apk"
   ],
-  "notes": "修复订阅用户详情页无媒体:用户时间线改用深度搜索解析器兼容 X 结构变化;增加取流路径诊断日志。",
+  "notes": "优化订阅列表筛选栏为两行布局;媒体网格改为瀑布流布局保留原始宽高比。",
   "publishedAt": "2026-08-20"
 }

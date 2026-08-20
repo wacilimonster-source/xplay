@@ -12,6 +12,10 @@ class Tweet {
   final bool isLiked;
   final int favoriteCount;
   final int replyCount;
+  /// Original media width (pixels), parsed from Twitter CDN URL or API response.
+  final int? mediaWidth;
+  /// Original media height (pixels), parsed from Twitter CDN URL or API response.
+  final int? mediaHeight;
 
   Tweet({
     required this.id,
@@ -27,11 +31,47 @@ class Tweet {
     this.isLiked = false,
     this.favoriteCount = 0,
     this.replyCount = 0,
+    this.mediaWidth,
+    this.mediaHeight,
   });
 
   String? get userAvatarUrlHighRes {
     if (userAvatarUrl == null) return null;
     return userAvatarUrl!.replaceAll('_normal', '');
+  }
+
+  /// Extracts width/height from a Twitter CDN URL (e.g.
+  /// https://pbs.twimg.com/media/Fxxx.jpg?format=jpg&name=600x600)
+  /// or https://pbs.twimg.com/media/Fxxx.jpg:small
+  static (int?, int?) parseTwitterMediaSize(String? url) {
+    if (url == null) return (null, null);
+    try {
+      final uri = Uri.parse(url);
+      final path = uri.path;
+      // Pattern: ?format=jpg&name=600x600
+      final name = uri.queryParameters['name'];
+      if (name != null && name.contains('x')) {
+        final parts = name.split('x');
+        if (parts.length == 2) {
+          final w = int.tryParse(parts[0]);
+          final h = int.tryParse(parts[1]);
+          if (w != null && h != null && w > 0 && h > 0) return (w, h);
+        }
+      }
+      // Pattern: :small, :large, :medium, :thumb
+      final colon = path.lastIndexOf(':');
+      if (colon > 0) {
+        final size = path.substring(colon + 1);
+        return switch (size) {
+          'small' => (680, null),
+          'large' => (2048, null),
+          'medium' => (1200, null),
+          'thumb' => (150, null),
+          _ => (null, null),
+        };
+      }
+    } catch (_) {}
+    return (null, null);
   }
 
   Tweet copyWith({
@@ -48,6 +88,8 @@ class Tweet {
     bool? isLiked,
     int? favoriteCount,
     int? replyCount,
+    int? mediaWidth,
+    int? mediaHeight,
   }) {
     return Tweet(
       id: id ?? this.id,
@@ -63,6 +105,8 @@ class Tweet {
       isLiked: isLiked ?? this.isLiked,
       favoriteCount: favoriteCount ?? this.favoriteCount,
       replyCount: replyCount ?? this.replyCount,
+      mediaWidth: mediaWidth ?? this.mediaWidth,
+      mediaHeight: mediaHeight ?? this.mediaHeight,
     );
   }
 }

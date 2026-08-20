@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../../core/navigation/navigation_provider.dart';
 import '../../core/utils/media_cache_manager.dart';
 import '../settings/settings_provider.dart';
@@ -270,18 +271,16 @@ class UserDetailsScreen extends ConsumerWidget {
                           ),
                         )
                       else
-                        SliverPadding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          sliver: SliverGrid(
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: MasonryGridView.count(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
                               crossAxisCount: 3,
-                              crossAxisSpacing: 4,
                               mainAxisSpacing: 4,
-                              childAspectRatio: 1,
-                            ),
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) {
+                              crossAxisSpacing: 4,
+                              itemBuilder: (context, index) {
                                 if (index == tweets.length - 1) {
                                   WidgetsBinding.instance
                                       .addPostFrameCallback((_) {
@@ -294,6 +293,21 @@ class UserDetailsScreen extends ConsumerWidget {
                                 }
 
                                 final tweet = tweets[index];
+                                final cellWidth =
+                                    (MediaQuery.of(context).size.width -
+                                            8 -
+                                            4 * 3) /
+                                        3;
+                                final ratio =
+                                    tweet.mediaWidth != null &&
+                                            tweet.mediaHeight != null &&
+                                            tweet.mediaWidth! > 0 &&
+                                            tweet.mediaHeight! > 0
+                                        ? tweet.mediaWidth! / tweet.mediaHeight!
+                                        : 1.0;
+                                final mainAxisExtent =
+                                    cellWidth / ratio + 48;
+
                                 return GestureDetector(
                                   key: ValueKey(tweet.id),
                                   onTap: () {
@@ -311,55 +325,90 @@ class UserDetailsScreen extends ConsumerWidget {
                                     ),
                                     clipBehavior: Clip.antiAlias,
                                     child: Stack(
-                                      fit: StackFit.expand,
+                                      fit: StackFit.passthrough,
                                       children: [
-                                        if (tweet.mediaUrls.isNotEmpty)
-                                          CachedNetworkImage(
-                                            cacheManager:
-                                                CustomMediaCacheManager
-                                                    .getInstance(),
-                                            imageUrl: tweet.thumbnailUrl ??
-                                                tweet.mediaUrls.first,
-                                            fit: BoxFit.cover,
-                                            memCacheWidth: 300,
-                                            memCacheHeight: 300,
-                                            placeholder: (context, url) =>
-                                                Container(
-                                                    color: Colors.black12),
-                                            errorWidget:
-                                                (context, url, error) =>
-                                                    const Icon(Icons.error),
-                                          )
-                                        else
-                                          Container(
-                                            padding: const EdgeInsets.all(8),
-                                            alignment: Alignment.center,
-                                            child: Text(
-                                              tweet.text,
-                                              maxLines: 4,
-                                              overflow: TextOverflow.ellipsis,
-                                              textAlign: TextAlign.center,
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .bodySmall
-                                                  ?.copyWith(fontSize: 10),
+                                        SizedBox(
+                                          height: mainAxisExtent - 48,
+                                          width: double.infinity,
+                                          child: tweet.mediaUrls.isNotEmpty
+                                              ? CachedNetworkImage(
+                                                  cacheManager:
+                                                      CustomMediaCacheManager
+                                                          .getInstance(),
+                                                  imageUrl:
+                                                      tweet.thumbnailUrl ??
+                                                          tweet.mediaUrls.first,
+                                                  fit: BoxFit.cover,
+                                                  memCacheWidth: 300,
+                                                  memCacheHeight: 300,
+                                                  placeholder: (context, url) =>
+                                                      Container(
+                                                          color: Colors.black12),
+                                                  errorWidget:
+                                                      (context, url, error) =>
+                                                          const Icon(
+                                                              Icons.error),
+                                                )
+                                              : Container(
+                                                  padding:
+                                                      const EdgeInsets.all(8),
+                                                  alignment: Alignment.center,
+                                                  child: Text(
+                                                    tweet.text,
+                                                    maxLines: 4,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    textAlign: TextAlign.center,
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(fontSize: 10),
+                                                  ),
+                                                ),
+                                        ),
+                                        Positioned(
+                                          left: 4,
+                                          bottom: 4,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black54,
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                if (tweet.isVideo)
+                                                  const Icon(
+                                                    Icons.play_circle_outline,
+                                                    color: Colors.white70,
+                                                    size: 14,
+                                                  ),
+                                                if (tweet.mediaUrls.length > 1)
+                                                  Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                            left: 2),
+                                                    child: Text(
+                                                      '${tweet.mediaUrls.length}',
+                                                      style: const TextStyle(
+                                                        color: Colors.white70,
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+                                                  ),
+                                              ],
                                             ),
                                           ),
-                                        if (tweet.isVideo)
-                                          const Positioned(
-                                            top: 4,
-                                            right: 4,
-                                            child: Icon(
-                                                Icons.play_circle_outline,
-                                                color: Colors.white70,
-                                                size: 20),
-                                          ),
+                                        ),
                                       ],
                                     ),
                                   ),
                                 );
                               },
-                              childCount: tweets.length,
+                              itemCount: tweets.length,
                             ),
                           ),
                         ),

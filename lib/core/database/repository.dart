@@ -31,7 +31,7 @@ class Repository {
     }
     return await openDatabase(
       path,
-      version: 10,
+      version: 11,
       onCreate: (db, version) async {
         await db.execute(
           'CREATE TABLE $tableAccounts (id TEXT PRIMARY KEY, screen_name TEXT, rest_id TEXT, auth_header TEXT)',
@@ -142,6 +142,12 @@ class Repository {
             )
           ''');
         }
+        if (oldVersion < 11) {
+          await db.execute(
+              'ALTER TABLE $tableCachedMedia ADD COLUMN media_width INTEGER');
+          await db.execute(
+              'ALTER TABLE $tableCachedMedia ADD COLUMN media_height INTEGER');
+        }
       },
     );
   }
@@ -232,6 +238,8 @@ class Repository {
           'thumbnail_url': tweet.thumbnailUrl,
           'is_video': tweet.isVideo ? 1 : 0,
           'created_at': tweet.createdAt?.millisecondsSinceEpoch,
+          'media_width': tweet.mediaWidth,
+          'media_height': tweet.mediaHeight,
         },
         conflictAlgorithm: ConflictAlgorithm
             .ignore, // Don't overwrite play counts if already exists
@@ -295,6 +303,8 @@ class Repository {
         createdAt: maps[i]['created_at'] != null
             ? DateTime.fromMillisecondsSinceEpoch(maps[i]['created_at'] as int)
             : null,
+        mediaWidth: maps[i]['media_width'] as int?,
+        mediaHeight: maps[i]['media_height'] as int?,
       );
     });
 
@@ -363,6 +373,8 @@ class Repository {
         createdAt: maps[i]['created_at'] != null
             ? DateTime.fromMillisecondsSinceEpoch(maps[i]['created_at'] as int)
             : null,
+        mediaWidth: maps[i]['media_width'] as int?,
+        mediaHeight: maps[i]['media_height'] as int?,
       );
     });
 
@@ -460,6 +472,8 @@ class Repository {
         createdAt: maps[i]['created_at'] != null
             ? DateTime.fromMillisecondsSinceEpoch(maps[i]['created_at'] as int)
             : null,
+        mediaWidth: maps[i]['media_width'] as int?,
+        mediaHeight: maps[i]['media_height'] as int?,
       );
     });
   }
@@ -513,6 +527,8 @@ class Repository {
         createdAt: maps[i]['created_at'] != null
             ? DateTime.fromMillisecondsSinceEpoch(maps[i]['created_at'] as int)
             : null,
+        mediaWidth: maps[i]['media_width'] as int?,
+        mediaHeight: maps[i]['media_height'] as int?,
       );
     });
   }
