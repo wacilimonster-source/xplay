@@ -146,3 +146,6 @@ env/
 /docs/tutorial/*
 /api_response
 xflow_v0.5.1_media_fix.apk
+# Signing credentials (local only). The keystore itself IS committed so that
+# every build uses the same signature; the passwords stay out of git.
+/android/key.properties

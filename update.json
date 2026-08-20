@@ -1,9 +1,9 @@
 {
-  "version": "0.01.6",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.6/app-release.apk",
+  "version": "0.01.7",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.7/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.6/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/v0.01.7/app-release.apk"
   ],
-  "notes": "修复更新安装无权限问题：增加安装未知应用权限申请与引导，授权后自动继续安装。",
+  "notes": "修复安装签名不一致(固定 release 签名)+ APK 体积优化(仅 arm64,约 31MB)。注意：因签名变化,首次需卸载旧版后安装。",
   "publishedAt": "2026-08-20"
 }
