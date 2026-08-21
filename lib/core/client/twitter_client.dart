@@ -379,7 +379,9 @@ class TwitterClient {
 
   Subscription? _profileFromTimeline(
       Map<String, dynamic> timeline, String screenName) {
-    final instructions = List.from(timeline['instructions'] ?? []);
+    final instructions = List.from(timeline['instructions'] ??
+        timeline['timeline']?['instructions'] ??
+        []);
     Map<String, dynamic>? entriesInstruction;
     for (final instruction in instructions) {
       if (instruction is Map<String, dynamic> &&
@@ -421,6 +423,13 @@ class TwitterClient {
         final legacy = userResult?['legacy'] ??
             userResult?['core']?['user_results']?['result']?['legacy'];
         if (legacy == null) continue;
+
+        // Ensure this author matches the screenName we're looking up
+        // (the first tweet might be a retweet with a different author).
+        final authorHandle = legacy['screen_name']?.toString().toLowerCase();
+        if (authorHandle != null && authorHandle != screenName.toLowerCase()) {
+          continue;
+        }
 
         final id = userResult?['rest_id'] ?? userResult?['id_str'] ?? screenName;
         final avatar = legacy['profile_image_url_https'] ??
