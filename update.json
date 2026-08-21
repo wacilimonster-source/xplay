@@ -1,9 +1,9 @@
 {
-  "version": "0.1.28",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/0.1.28/app-release.apk",
+  "version": "0.1.29",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/0.1.29/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/0.1.28/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/0.1.29/app-release.apk"
   ],
-  "notes": "修复：用户详情页「未找到用户」（UserByScreenName 接口 ID 全部过期，新增 SearchTimeline 兜底）；订阅列表不再批量联网拉取资料，改为打开详情页时自动保存（有就显示、没有不请求）。",
+  "notes": "修复：详情页媒体卡片图片变形（去掉memCacheHeight）；SearchTimeline兜底补全instructions fallback路径+作者screenName校验。",
   "publishedAt": "2026-08-21"
 }
