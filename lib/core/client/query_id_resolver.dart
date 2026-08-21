@@ -37,6 +37,7 @@ class QueryIdResolver {
     'MediaTabVideoMixer': 'rAqW5uh6Unfi46lidxFwzA',
     'FavoriteTweet': 'lI07N6Otwv1PhnEgXILM7A',
     'UnfavoriteTweet': 'ZYKSe-w7KEslx3JhSIk5LA',
+    'FollowMutation': 'gR6jKoWRvzfqUhTqNJE2Qw',
   };
 
   static final Map<String, String> _ids = Map.from(_bundled);
@@ -145,6 +146,11 @@ class QueryIdResolver {
     ],
     'FavoriteTweet': ['lI07N6Otwv1PhnEgXILM7A'],
     'UnfavoriteTweet': ['ZYKSe-w7KEslx3JhSIk5LA'],
+    'FollowMutation': [
+      'gR6jKoWRvzfqUhTqNJE2Qw',
+      's7Fsr91nXJbwYcMTZ9Gzqw',
+      '1tXuAKRpcVzsxGuQ0UzZpg',
+    ],
   };
 
   /// Returns the GraphQL path for [op], e.g. `/graphql/<id>/SearchTimeline`.

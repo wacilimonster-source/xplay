@@ -132,6 +132,13 @@ class TwitterAccount {
       combinedHeaders.addAll(authHeaders);
     }
 
+    // X requires the CSRF token (ct0 cookie) on mutation requests (POST).
+    // Add it whenever available; harmless on GET.
+    final ct0 = _ct0FromAccount();
+    if (ct0 != null) {
+      combinedHeaders['x-csrf-token'] = ct0;
+    }
+
     // X requires x-xp-forwarded-for on SearchTimeline/Followers since 2026.
     // The AES key is derived from the session's guest_id cookie.
     String? xpff;
@@ -230,6 +237,20 @@ class TwitterAccount {
       if (cookie == null) return null;
       final match =
           RegExp(r'(?:^|;\s*)guest_id=([^;]+)').firstMatch(cookie);
+      return match?.group(1);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String? _ct0FromAccount() {
+    final account = _currentAccount;
+    if (account == null) return null;
+    try {
+      final auth = Map<String, String>.from(json.decode(account.authHeader));
+      final cookie = auth['Cookie'];
+      if (cookie == null) return null;
+      final match = RegExp(r'(?:^|;\s*)ct0=([^;]+)').firstMatch(cookie);
       return match?.group(1);
     } catch (_) {
       return null;

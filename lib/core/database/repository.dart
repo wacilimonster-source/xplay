@@ -31,7 +31,7 @@ class Repository {
     }
     return await openDatabase(
       path,
-      version: 11,
+      version: 12,
       onCreate: (db, version) async {
         await db.execute(
           'CREATE TABLE $tableAccounts (id TEXT PRIMARY KEY, screen_name TEXT, rest_id TEXT, auth_header TEXT)',
@@ -148,6 +148,10 @@ class Repository {
           await db.execute(
               'ALTER TABLE $tableCachedMedia ADD COLUMN media_height INTEGER');
         }
+        if (oldVersion < 12) {
+          await db.execute(
+              'ALTER TABLE $tableSubscriptions ADD COLUMN profile_synced_at INTEGER');
+        }
       },
     );
   }
@@ -220,6 +224,120 @@ class Repository {
   static Future<void> clearSubscriptions() async {
     final db = await database;
     await db.delete(tableSubscriptions);
+  }
+
+  static Future<int> getUnsyncedMissingCount() async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as c FROM $tableSubscriptions '
+      'WHERE description IS NULL AND followers_count IS NULL '
+      'AND profile_synced_at IS NULL',
+    );
+    return (result.first['c'] as int?) ?? 0;
+  }
+
+  static Future<void> markAllSubscriptionsSynced() async {
+    final db = await database;
+    await db.update(
+      tableSubscriptions,
+      {'profile_synced_at': DateTime.now().millisecondsSinceEpoch},
+    );
+  }
+
+  static Map<String, dynamic> _subscriptionWriteMap(Subscription sub) => {
+        'id': sub.id,
+        'screen_name': sub.screenName,
+        'name': sub.name,
+        'profile_image_url': sub.profileImageUrl,
+        'description': sub.description,
+        'followers_count': sub.followersCount,
+        'following_count': sub.followingCount,
+        'profile_synced_at': sub.profileSyncedAt,
+      };
+
+  /// Inserts or updates a subscription while preserving any locally cached
+  /// non-null fields that the incoming data does not carry (merge, not replace).
+  static Future<void> mergeSubscription(Subscription newSub) async {
+    final db = await database;
+    final existing = await db.query(
+      tableSubscriptions,
+      where: 'id = ?',
+      whereArgs: [newSub.id],
+      limit: 1,
+    );
+
+    Subscription merged = newSub;
+    if (existing.isNotEmpty) {
+      final old = Subscription.fromMap(existing.first);
+      merged = Subscription(
+        id: newSub.id,
+        screenName: newSub.screenName,
+        name: newSub.name,
+        profileImageUrl: newSub.profileImageUrl ?? old.profileImageUrl,
+        description: newSub.description ?? old.description,
+        followersCount: newSub.followersCount ?? old.followersCount,
+        followingCount: newSub.followingCount ?? old.followingCount,
+        profileSyncedAt: old.profileSyncedAt,
+      );
+    }
+
+    await db.insert(
+      tableSubscriptions,
+      _subscriptionWriteMap(merged),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Batch variant of [mergeSubscription].
+  static Future<void> mergeSubscriptions(List<Subscription> subs) async {
+    final db = await database;
+    final existingMaps = await db.query(tableSubscriptions);
+    final existingByScreen = <String, Subscription>{};
+    for (final m in existingMaps) {
+      final s = Subscription.fromMap(m);
+      existingByScreen[s.screenName.toLowerCase()] = s;
+    }
+
+    final batch = db.batch();
+    for (final sub in subs) {
+      final old = existingByScreen[sub.screenName.toLowerCase()];
+      final merged = old == null
+          ? sub
+          : Subscription(
+              id: sub.id,
+              screenName: sub.screenName,
+              name: sub.name,
+              profileImageUrl: sub.profileImageUrl ?? old.profileImageUrl,
+              description: sub.description ?? old.description,
+              followersCount: sub.followersCount ?? old.followersCount,
+              followingCount: sub.followingCount ?? old.followingCount,
+              profileSyncedAt: old.profileSyncedAt,
+            );
+      batch.insert(tableSubscriptions, _subscriptionWriteMap(merged),
+          conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Reconciles local subscriptions with a remote following list.
+  /// Always upserts the remote entries (merged). When [deleteMissing] is true,
+  /// local entries not present in [remote] are removed. [deleteMissing] must
+  /// only be true when the remote list is known to be complete (otherwise a
+  /// partial fetch would wrongly delete valid subscriptions).
+  static Future<void> syncFollowingFromList(List<Subscription> remote,
+      {required bool deleteMissing}) async {
+    await mergeSubscriptions(remote);
+
+    if (deleteMissing && remote.isNotEmpty) {
+      final db = await database;
+      final names = remote.map((s) => s.screenName.toLowerCase()).toList();
+      final placeholders = List.filled(names.length, '?').join(',');
+      await db.delete(
+        tableSubscriptions,
+        where: 'LOWER(screen_name) NOT IN ($placeholders)',
+        whereArgs: names,
+      );
+    }
   }
 
   static Future<void> insertCachedMedia(List<Tweet> tweets) async {

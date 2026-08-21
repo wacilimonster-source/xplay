@@ -36,6 +36,7 @@ class Subscription {
   final String? description;
   final int? followersCount;
   final int? followingCount;
+  final int? profileSyncedAt;
 
   Subscription({
     required this.id,
@@ -45,6 +46,7 @@ class Subscription {
     this.description,
     this.followersCount,
     this.followingCount,
+    this.profileSyncedAt,
   });
 
   String? get profileImageUrlHighRes {
@@ -71,6 +73,7 @@ class Subscription {
       description: map['description'],
       followersCount: map['followers_count'],
       followingCount: map['following_count'],
+      profileSyncedAt: map['profile_synced_at'],
     );
   }
 }

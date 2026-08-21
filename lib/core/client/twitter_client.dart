@@ -246,7 +246,8 @@ class TwitterClient {
     'withAuxiliaryUserLabels': true,
   };
 
-  Future<Subscription?> fetchProfile(String screenName) async {
+  Future<Subscription?> fetchProfile(String screenName,
+      {void Function()? onRateLimit}) async {
     if (screenName.startsWith('@')) screenName = screenName.substring(1);
 
     final attemptPaths = QueryIdResolver.candidatePaths('UserByScreenName');
@@ -268,6 +269,12 @@ class TwitterClient {
         });
 
         final response = await TwitterAccount.fetch(uri);
+        if (response.statusCode == 429) {
+          onRateLimit?.call();
+          AppLogger.log(
+              'Profile query returned 429 (rate limited) for $path. Stopping candidate attempts for this user.');
+          break;
+        }
         if (response.statusCode == 404 && i < attemptPaths.length - 1) {
           AppLogger.log(
               'Profile query returned 404 for $path. Retrying with alternate operation id.');
@@ -317,6 +324,76 @@ class TwitterClient {
     return null;
   }
 
+  /// Follows or unfollows a user on X. Best-effort: returns true if the
+  /// request succeeded, false otherwise. Does NOT throw.
+  ///
+  /// Tries the GraphQL FollowMutation first (per product decision), then falls
+  /// back to the legacy REST friendships endpoint if GraphQL is unavailable
+  /// or returns 404. The local subscription is always added/removed
+  /// independently of this result.
+  Future<bool> followUser(String screenName, {bool unfollow = false}) async {
+    String? userId;
+    try {
+      final profile = await fetchProfile(screenName);
+      userId = profile?.id;
+    } catch (_) {
+      userId = null;
+    }
+
+    // GraphQL FollowMutation requires the numeric userId; if we couldn't
+    // resolve it, skip GraphQL entirely and use the legacy REST endpoint
+    // (which keys off screen_name) so we don't misreport success.
+    if (userId != null) {
+      final attemptPaths = QueryIdResolver.candidatePaths('FollowMutation');
+      for (final path in attemptPaths) {
+      try {
+        final uri = Uri.https('x.com', '/i/api$path', {
+          'variables': jsonEncode({
+            'userId': userId,
+            'unfollow': unfollow,
+          }),
+          'features': jsonEncode(followingFeatures),
+        });
+        final response = await TwitterAccount.fetch(uri, method: 'POST');
+        if (response.statusCode == 200) {
+          AppLogger.log(
+              'XFLOW: ${unfollow ? 'Un' : ''}follow @$screenName via GraphQL OK');
+          return true;
+        }
+        if (response.statusCode == 404) {
+          AppLogger.log(
+              'XFLOW: FollowMutation 404 for $path, trying next candidate');
+          continue;
+        }
+        AppLogger.log(
+            'XFLOW: FollowMutation returned ${response.statusCode}, falling back to REST');
+        break;
+      } catch (e) {
+        AppLogger.log('XFLOW: FollowMutation error for $path: $e');
+      }
+      }
+    }
+
+    return _followLegacy(screenName, unfollow: unfollow);
+  }
+
+  Future<bool> _followLegacy(String screenName, {bool unfollow = false}) async {
+    final uri = Uri.https(
+      'x.com',
+      '/i/api/1.1/friendships/${unfollow ? 'destroy' : 'create'}.json',
+      {'screen_name': screenName},
+    );
+    try {
+      final response = await TwitterAccount.fetch(uri, method: 'POST');
+      AppLogger.log(
+          'XFLOW: ${unfollow ? 'Un' : ''}follow @$screenName via REST status=${response.statusCode}');
+      return response.statusCode == 200;
+    } catch (e) {
+      AppLogger.log('XFLOW: Legacy follow error for @$screenName: $e');
+      return false;
+    }
+  }
+
   Future<TweetResponse> fetchUserTweets(String screenName,
       {String? cursor,
       FeedSort? sort,
@@ -335,10 +412,12 @@ class TwitterClient {
     );
   }
 
-  Future<List<Subscription>>? _followingInFlight;
+  Future<(List<Subscription> subscriptions, bool complete)>?
+      _followingInFlight;
 
-  Future<List<Subscription>> fetchFollowing(String userId,
-      {int maxCount = 2000, int cooldownMinutes = 15}) async {
+  Future<(List<Subscription> subscriptions, bool complete)>
+      fetchFollowing(String userId,
+          {int maxCount = 2000, int cooldownMinutes = 15}) async {
     if (_followingInFlight != null) {
       AppLogger.log('fetchFollowing: reusing in-flight request for $userId');
       return _followingInFlight!;
@@ -359,7 +438,8 @@ class TwitterClient {
     }
   }
 
-  Future<List<Subscription>> _fetchFollowing(String userId,
+  Future<(List<Subscription> subscriptions, bool complete)> _fetchFollowing(
+      String userId,
       {int maxCount = 2000, int cooldownMinutes = 15}) async {
     final allSubs = <Subscription>[];
     String? currentCursor;
@@ -507,10 +587,10 @@ final userResult =
             'Timeline result [fetchFollowing]: batchAdded=$newFound nextCursor=$nextCursor total=${allSubs.length}');
         currentCursor = nextCursor;
       }
-      return allSubs;
+      return (allSubs, allSubs.length < maxCount);
     } catch (e) {
       AppLogger.log('Error fetching following: $e');
-      return allSubs;
+      return (allSubs, false);
     }
   }
 
@@ -669,11 +749,12 @@ final userResult =
     if (subs.isEmpty) {
       final currentAccount = TwitterAccount.currentAccount;
       if (currentAccount != null && currentAccount.restId.isNotEmpty) {
-        subs = await fetchFollowing(currentAccount.restId,
+        final (following, _) = await fetchFollowing(currentAccount.restId,
             cooldownMinutes: cooldownMinutes);
-        if (subs.isNotEmpty) {
-          await Repository.insertSubscriptions(subs);
+        if (following.isNotEmpty) {
+          await Repository.mergeSubscriptions(following);
         }
+        subs = following;
       }
     }
 

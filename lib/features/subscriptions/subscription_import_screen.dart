@@ -39,9 +39,9 @@ class _SubscriptionImportScreenState extends State<SubscriptionImportScreen> {
         throw Exception('未找到该用户');
       }
 
-      final following = await client.fetchFollowing(user.id);
+      final (following, _) = await client.fetchFollowing(user.id);
       if (following.isNotEmpty) {
-        await Repository.insertSubscriptions(following);
+        await Repository.mergeSubscriptions(following);
         _streamController?.add(following.length);
       } else {
         _streamController?.add(0);
