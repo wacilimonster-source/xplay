@@ -833,6 +833,11 @@ final userResult =
         if (timeline == null) return TweetResponse(tweets: []);
 
         final tweetResponse = _parseTweets(timeline);
+
+        if (filters != null && filters.isNotEmpty) {
+          tweetResponse.tweets = _applyFilters(tweetResponse.tweets, filters);
+        }
+
         _logTimelineResult(
           'fetchTrendingMedia',
           tweetResponse,
@@ -1450,22 +1455,22 @@ final userResult =
     }
   }
 
-  List<Tweet> _applyFilters(List<Tweet> tweets, Set<MediaFilter> blocked) {
+  List<Tweet> _applyFilters(List<Tweet> tweets, Set<MediaFilter> allowed) {
     return tweets.where((tweet) {
-      for (final filter in blocked) {
+      for (final filter in allowed) {
         switch (filter) {
           case MediaFilter.video:
-            if (tweet.isVideo) return false;
+            if (tweet.isVideo) return true;
             break;
           case MediaFilter.image:
-            if (!tweet.isVideo && tweet.mediaUrls.isNotEmpty) return false;
+            if (!tweet.isVideo && tweet.mediaUrls.isNotEmpty) return true;
             break;
           case MediaFilter.text:
-            if (tweet.mediaUrls.isEmpty) return false;
+            if (tweet.mediaUrls.isEmpty) return true;
             break;
         }
       }
-      return true;
+      return false;
     }).toList();
   }
 
