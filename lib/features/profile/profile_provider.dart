@@ -11,7 +11,11 @@ import '../settings/settings_provider.dart';
 final userProfileProvider =
     FutureProvider.family<Subscription?, String>((ref, screenName) async {
   final client = ref.watch(twitterClientProvider);
-  return client.fetchProfile(screenName);
+  final profile = await client.fetchProfile(screenName);
+  if (profile != null) {
+    await Repository.persistProfileIfSubscribed(profile);
+  }
+  return profile;
 });
 
 class UserMediaNotifier extends AsyncNotifier<FeedState> {

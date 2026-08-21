@@ -321,6 +321,122 @@ class TwitterClient {
       }
     }
 
+    // Fallback: the UserByScreenName query IDs rotate and are not refreshed by
+    // the runtime capture (which never visits a profile page), so they can all
+    // expire and break every profile lookup. Resolve from the working
+    // SearchTimeline path instead so a valid user never shows as "未找到用户".
+    final viaSearch = await _fetchProfileViaSearch(screenName);
+    if (viaSearch != null) {
+      AppLogger.log('Profile resolved for @$screenName via SearchTimeline fallback');
+      return viaSearch;
+    }
+
+    AppLogger.log('Profile lookup failed for @$screenName (all paths)');
+    return null;
+  }
+
+  /// Resolves a user profile from a SearchTimeline query (`from:screenName`),
+  /// parsing the first tweet's author `legacy`. Used as a fallback when the
+  /// dedicated UserByScreenName GraphQL operation is unavailable.
+  Future<Subscription?> _fetchProfileViaSearch(String screenName) async {
+    final variables = {
+      'rawQuery': 'from:$screenName',
+      'count': '5',
+      'product': 'Latest',
+      'querySource': 'typed_query',
+      'withDownvotePerspective': false,
+      'withReactionsMetadata': false,
+      'withReactionsPerspective': false,
+    };
+    final postBody = jsonEncode({
+      'variables': variables,
+      'features': searchTimelineFeatures,
+      'fieldToggles': searchTimelineFieldToggles,
+    });
+
+    final attemptPaths = QueryIdResolver.candidatePaths('SearchTimeline');
+    for (var i = 0; i < attemptPaths.length; i++) {
+      final path = attemptPaths[i];
+      final uri = Uri.https('x.com', '/i/api$path');
+      try {
+        final response = await TwitterAccount.fetch(uri, method: 'POST', body: postBody);
+        if (response.statusCode == 404 && i < attemptPaths.length - 1) continue;
+        if (response.statusCode != 200) continue;
+
+        final result = json.decode(response.body);
+        final timeline =
+            result?['data']?['search_by_raw_query']?['search_timeline'];
+        if (timeline == null) continue;
+
+        final profile = _profileFromTimeline(timeline, screenName);
+        if (profile != null) return profile;
+      } catch (e) {
+        AppLogger.log('Profile SearchTimeline fallback error for @$screenName: $e');
+      }
+    }
+    return null;
+  }
+
+  Subscription? _profileFromTimeline(
+      Map<String, dynamic> timeline, String screenName) {
+    final instructions = List.from(timeline['instructions'] ?? []);
+    Map<String, dynamic>? entriesInstruction;
+    for (final instruction in instructions) {
+      if (instruction is Map<String, dynamic> &&
+          (instruction['entries'] != null || instruction['entry'] != null)) {
+        entriesInstruction = instruction;
+        break;
+      }
+    }
+    if (entriesInstruction == null) return null;
+
+    final entries = List.from(entriesInstruction['entries'] ??
+        [entriesInstruction['entry']].where((e) => e != null));
+
+    for (final entry in entries) {
+      final content = entry['content'];
+      if (content == null) continue;
+      final List itemContents = [];
+      if (content['entryType'] == 'TimelineTimelineModule') {
+        itemContents.addAll(List.from(content['items'] ?? [])
+            .map((it) => it['item'])
+            .where((it) => it != null));
+      } else if (content['entryType'] == 'TimelineTimelineItem') {
+        itemContents.add(content);
+      }
+      for (final ic in itemContents) {
+        var tweetResult = ic['itemContent']?['tweet_results']?['result'] ??
+            ic['tweet_results']?['result'];
+        if (tweetResult == null) continue;
+        if (tweetResult['__typename'] == 'TweetWithVisibilityResults') {
+          tweetResult = tweetResult['tweet_results']?['result'];
+        }
+        if (tweetResult == null) continue;
+        if (tweetResult['rest_id'] == null && tweetResult['tweet'] != null) {
+          tweetResult = tweetResult['tweet'];
+        }
+
+        final userResult = tweetResult['core']?['user_results']?['result'] ??
+            tweetResult['user_results']?['result'];
+        final legacy = userResult?['legacy'] ??
+            userResult?['core']?['user_results']?['result']?['legacy'];
+        if (legacy == null) continue;
+
+        final id = userResult?['rest_id'] ?? userResult?['id_str'] ?? screenName;
+        final avatar = legacy['profile_image_url_https'] ??
+            userResult?['avatar']?['image_url'] ??
+            legacy['profile_image_url'];
+        return Subscription(
+          id: id,
+          screenName: legacy['screen_name'] ?? screenName,
+          name: legacy['name'] ?? screenName,
+          profileImageUrl: avatar,
+          description: legacy['description'],
+          followersCount: legacy['followers_count'],
+          followingCount: legacy['friends_count'],
+        );
+      }
+    }
     return null;
   }
 

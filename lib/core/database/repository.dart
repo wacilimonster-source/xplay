@@ -226,24 +226,6 @@ class Repository {
     await db.delete(tableSubscriptions);
   }
 
-  static Future<int> getUnsyncedMissingCount() async {
-    final db = await database;
-    final result = await db.rawQuery(
-      'SELECT COUNT(*) as c FROM $tableSubscriptions '
-      'WHERE description IS NULL AND followers_count IS NULL '
-      'AND profile_synced_at IS NULL',
-    );
-    return (result.first['c'] as int?) ?? 0;
-  }
-
-  static Future<void> markAllSubscriptionsSynced() async {
-    final db = await database;
-    await db.update(
-      tableSubscriptions,
-      {'profile_synced_at': DateTime.now().millisecondsSinceEpoch},
-    );
-  }
-
   static Map<String, dynamic> _subscriptionWriteMap(Subscription sub) => {
         'id': sub.id,
         'screen_name': sub.screenName,
@@ -317,6 +299,23 @@ class Repository {
           conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
+  }
+
+  /// Updates an existing subscription row with fresh profile data (e.g. from
+  /// [fetchProfile]). Only touches rows that already exist — never inserts.
+  static Future<void> persistProfileIfSubscribed(Subscription sub) async {
+    final db = await database;
+    final exists = await db.rawQuery(
+      'SELECT 1 FROM $tableSubscriptions WHERE LOWER(screen_name) = ? LIMIT 1',
+      [sub.screenName.toLowerCase()],
+    );
+    if (exists.isEmpty) return;
+    await db.update(
+      tableSubscriptions,
+      _subscriptionWriteMap(sub),
+      where: 'LOWER(screen_name) = ?',
+      whereArgs: [sub.screenName.toLowerCase()],
+    );
   }
 
   /// Reconciles local subscriptions with a remote following list.

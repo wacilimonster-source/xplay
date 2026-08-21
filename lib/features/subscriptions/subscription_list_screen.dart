@@ -4,7 +4,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/database/repository.dart';
 import '../../core/database/entities.dart';
 import '../../core/utils/media_cache_manager.dart';
-import '../../core/utils/app_logger.dart';
 import '../profile/user_details_screen.dart';
 import '../../core/navigation/navigation_provider.dart';
 import '../settings/settings_screen.dart';
@@ -27,10 +26,6 @@ class SubscriptionListState {
   final SubscriptionSort sort;
   final bool isAscending;
   final bool isLoading;
-  final bool isEnriching;
-  final int enrichedCount;
-  final int totalToEnrich;
-  final bool showHistoryPrompt;
 
   SubscriptionListState({
     this.allSubscriptions = const [],
@@ -39,10 +34,6 @@ class SubscriptionListState {
     this.sort = SubscriptionSort.name,
     this.isAscending = true,
     this.isLoading = true,
-    this.isEnriching = false,
-    this.enrichedCount = 0,
-    this.totalToEnrich = 0,
-    this.showHistoryPrompt = false,
   });
 
   List<Subscription> get filteredSubscriptions {
@@ -90,13 +81,6 @@ class SubscriptionListState {
     return allSubscriptions.any((sub) => sub.screenName.toLowerCase() == lower);
   }
 
-  int get unsyncedMissingCount => allSubscriptions
-      .where((s) =>
-          s.description == null &&
-          s.followersCount == null &&
-          s.profileSyncedAt == null)
-      .length;
-
   SubscriptionListState copyWith({
     List<Subscription>? allSubscriptions,
     Map<String, int>? userViews,
@@ -104,10 +88,6 @@ class SubscriptionListState {
     SubscriptionSort? sort,
     bool? isAscending,
     bool? isLoading,
-    bool? isEnriching,
-    int? enrichedCount,
-    int? totalToEnrich,
-    bool? showHistoryPrompt,
   }) {
     return SubscriptionListState(
       allSubscriptions: allSubscriptions ?? this.allSubscriptions,
@@ -116,10 +96,6 @@ class SubscriptionListState {
       sort: sort ?? this.sort,
       isAscending: isAscending ?? this.isAscending,
       isLoading: isLoading ?? this.isLoading,
-      isEnriching: isEnriching ?? this.isEnriching,
-      enrichedCount: enrichedCount ?? this.enrichedCount,
-      totalToEnrich: totalToEnrich ?? this.totalToEnrich,
-      showHistoryPrompt: showHistoryPrompt ?? this.showHistoryPrompt,
     );
   }
 }
@@ -127,7 +103,7 @@ class SubscriptionListState {
 class SubscriptionListNotifier extends Notifier<SubscriptionListState> {
   @override
   SubscriptionListState build() {
-    _load().then((_) => _enrichMissing());
+    _load();
     return SubscriptionListState();
   }
 
@@ -142,119 +118,6 @@ class SubscriptionListNotifier extends Notifier<SubscriptionListState> {
       userViews: results[1] as Map<String, int>,
       isLoading: false,
     );
-
-    final unsyncedMissing = await Repository.getUnsyncedMissingCount();
-    state = state.copyWith(showHistoryPrompt: unsyncedMissing > 0);
-  }
-
-  List<Subscription> get _missingSubs =>
-      state.allSubscriptions
-          .where((s) =>
-              s.description == null &&
-              s.followersCount == null)
-          .toList();
-
-  DateTime? _enrichPauseUntil;
-  static const Duration _rateLimitCooldown = Duration(seconds: 60);
-
-  Future<void> _enrichMissing() async {
-    final missing = _missingSubs;
-    if (missing.isEmpty) return;
-
-    await _doEnrich(missing.take(20).toList(), isManual: false);
-  }
-
-  Future<void> enrichAll() async {
-    if (state.isEnriching) return;
-
-    final missing = _missingSubs;
-    if (missing.isEmpty) {
-      return;
-    }
-
-    await _doEnrich(missing, isManual: true);
-  }
-
-  Future<void> _doEnrich(List<Subscription> batch, {required bool isManual}) async {
-    if (batch.isEmpty) return;
-
-    state = state.copyWith(
-      isEnriching: true,
-      enrichedCount: 0,
-      totalToEnrich: batch.length,
-    );
-
-    final client = TwitterClient();
-    const concurrency = 3;
-    const chunkDelay = Duration(milliseconds: 500);
-    int completed = 0;
-
-    for (int i = 0; i < batch.length; i += concurrency) {
-      if (_enrichPauseUntil != null) {
-        final wait = _enrichPauseUntil!.difference(DateTime.now());
-        if (wait > Duration.zero) {
-          AppLogger.log(
-              'Enrichment paused for rate limit, waiting ${wait.inSeconds}s');
-          await Future.delayed(wait);
-        }
-        _enrichPauseUntil = null;
-      }
-
-      final end = (i + concurrency < batch.length)
-          ? i + concurrency
-          : batch.length;
-      final chunk = batch.sublist(i, end);
-
-      await Future.wait(chunk.map((sub) => _fetchOneProfile(client, sub)));
-
-      completed = end;
-      state = state.copyWith(enrichedCount: completed);
-
-      if (end < batch.length) {
-        await Future.delayed(chunkDelay);
-      }
-    }
-
-    _enrichPauseUntil = null;
-    await _load();
-
-    if (isManual) {
-      await Repository.markAllSubscriptionsSynced();
-      state = state.copyWith(
-        isEnriching: false,
-        enrichedCount: 0,
-        totalToEnrich: 0,
-        showHistoryPrompt: false,
-      );
-    } else {
-      state = state.copyWith(
-        isEnriching: false,
-        enrichedCount: 0,
-        totalToEnrich: 0,
-      );
-    }
-  }
-
-  Future<void> _fetchOneProfile(TwitterClient client, Subscription sub) async {
-    try {
-      final profile = await client.fetchProfile(
-        sub.screenName,
-        onRateLimit: () {
-          _enrichPauseUntil = DateTime.now().add(_rateLimitCooldown);
-        },
-      );
-      if (profile != null &&
-          (profile.description != null || profile.followersCount != null)) {
-        await Repository.mergeSubscription(profile);
-      }
-    } catch (_) {
-      // Individual failures are skipped and retried on the next run.
-    }
-  }
-
-  Future<void> dismissHistoryPrompt() async {
-    await Repository.markAllSubscriptionsSynced();
-    state = state.copyWith(showHistoryPrompt: false);
   }
 
   void setSearchQuery(String query) {
@@ -302,7 +165,6 @@ class SubscriptionListNotifier extends Notifier<SubscriptionListState> {
         _applyFollow(sub, false);
       }
     } catch (e) {
-      AppLogger.log('XFLOW: Error toggling subscription: $e');
       // Rollback on error
       await _load();
       return;
@@ -334,194 +196,198 @@ final subscriptionListProvider =
 class SubscriptionListScreen extends ConsumerWidget {
   final bool isStandalone;
 
-  const SubscriptionListScreen({super.key, this.isStandalone = true});
+  const SubscriptionListScreen({super.key, this.isStandalone = false});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(subscriptionListProvider);
     final account = ref.watch(accountProvider);
 
+    Widget content;
     if (state.isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    final subs = state.filteredSubscriptions;
-
-    Widget content = subs.isEmpty
-        ? Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  state.searchQuery.isEmpty
-                      ? '未找到订阅内容'
-                      : '没有匹配“${state.searchQuery}”的结果',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(color: Colors.white70),
-                ),
-                if (account == null) ...[
-                  const SizedBox(height: 16),
-                  FilledButton.tonal(
-                    onPressed: () => Navigator.push(context,
-                        MaterialPageRoute(builder: (c) => const LoginScreen())),
-                    child: const Text('登录 X'),
-                  ),
-                ] else ...[
-                  const SizedBox(height: 16),
-                  FilledButton.tonal(
-                    onPressed: () async {
-                      final current = TwitterAccount.currentAccount;
-                      if (current == null || current.restId.isEmpty) return;
-                      final messenger = ScaffoldMessenger.of(context);
-                      final client = TwitterClient();
-                      final (subs, complete) = await client.fetchFollowing(
-                        current.restId,
-                        cooldownMinutes: 1,
-                      );
-                      if (subs.isNotEmpty) {
-                        await Repository.syncFollowingFromList(subs,
-                            deleteMissing: complete);
-                      }
-                      ref.invalidate(subscriptionListProvider);
-                      messenger.showSnackBar(SnackBar(
-                        content: Text(
-                            subs.isEmpty ? '同步失败，请稍后重试' : '已同步 ${subs.length} 个关注账号'),
-                      ));
-                    },
-                    child: const Text('同步关注列表'),
-                  ),
-                ],
-              ],
+      content = const Center(child: CircularProgressIndicator());
+    } else if (state.filteredSubscriptions.isEmpty) {
+      content = Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.people_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
+            const SizedBox(height: 16),
+            Text(
+              state.searchQuery.isEmpty
+                  ? '未找到订阅内容'
+                  : '没有匹配"${state.searchQuery}"的结果',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: Colors.white70),
             ),
-          )
-        : ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            itemCount: subs.length,
-            itemBuilder: (context, index) {
-              final sub = subs[index];
-              final views = state.userViews[sub.screenName.toLowerCase()] ?? 0;
+            if (account == null) ...[
+              const SizedBox(height: 16),
+              FilledButton.tonal(
+                onPressed: () => Navigator.push(context,
+                    MaterialPageRoute(builder: (c) => const LoginScreen())),
+                child: const Text('登录 X'),
+              ),
+            ] else ...[
+              const SizedBox(height: 16),
+              FilledButton.tonal(
+                onPressed: () async {
+                  final current = TwitterAccount.currentAccount;
+                  if (current == null || current.restId.isEmpty) return;
+                  final messenger = ScaffoldMessenger.of(context);
+                  final client = TwitterClient();
+                  final (subs, complete) = await client.fetchFollowing(
+                    current.restId,
+                    cooldownMinutes: 1,
+                  );
+                  if (subs.isNotEmpty) {
+                    await Repository.syncFollowingFromList(subs,
+                        deleteMissing: complete);
+                  }
+                  ref.invalidate(subscriptionListProvider);
+                  messenger.showSnackBar(SnackBar(
+                    content: Text(
+                        subs.isEmpty ? '同步失败，请稍后重试' : '已同步 ${subs.length} 个关注账号'),
+                  ));
+                },
+                child: const Text('同步关注列表'),
+              ),
+            ],
+          ],
+        ),
+      );
+    } else {
+      final subs = state.filteredSubscriptions;
+      content = ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        itemCount: subs.length,
+        itemBuilder: (context, index) {
+          final sub = subs[index];
+          final views = state.userViews[sub.screenName.toLowerCase()] ?? 0;
 
-              return Card(
-                elevation: 0,
-                color: Theme.of(context).colorScheme.surfaceContainerLow,
-                margin: const EdgeInsets.symmetric(vertical: 4),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(16),
-                  onTap: () {
-                    if (isStandalone) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) =>
-                              UserDetailsScreen(screenName: sub.screenName),
-                        ),
-                      );
-                    } else {
-                      ref
-                          .read(navigationProvider.notifier)
-                          .selectUser(sub.screenName);
-                    }
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        CircleAvatar(
-                          radius: 24,
-                          backgroundImage: sub.profileImageUrl != null
-                              ? CachedNetworkImageProvider(
-                                  sub.profileImageUrl!,
-                                  cacheManager:
-                                      CustomMediaCacheManager.getInstance(),
-                                )
-                              : null,
-                          child: sub.profileImageUrl == null
-                              ? const Icon(Icons.person, size: 24)
-                              : null,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+          return Card(
+            elevation: 0,
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16)),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () {
+                if (isStandalone) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          UserDetailsScreen(screenName: sub.screenName),
+                    ),
+                  );
+                } else {
+                  ref
+                      .read(navigationProvider.notifier)
+                      .selectUser(sub.screenName);
+                }
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundImage: sub.profileImageUrl != null
+                          ? CachedNetworkImageProvider(
+                              sub.profileImageUrl!,
+                              cacheManager:
+                                  CustomMediaCacheManager.getInstance(),
+                            )
+                          : null,
+                      child: sub.profileImageUrl == null
+                          ? const Icon(Icons.person, size: 24)
+                          : null,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            sub.name.isNotEmpty ? sub.name : sub.screenName,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 15),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 1),
+                          Text(
+                            '@${sub.screenName}',
+                            style: TextStyle(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                                fontSize: 13),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (sub.description != null &&
+                              sub.description!.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              sub.description!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                  fontSize: 12),
+                            ),
+                          ],
+                          const SizedBox(height: 6),
+                          Row(
                             children: [
-                              Text(
-                                sub.name,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold, fontSize: 15),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 1),
-                              Text(
-                                '@${sub.screenName}',
-                                style: TextStyle(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
-                                    fontSize: 13),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              if (sub.description != null &&
-                                  sub.description!.isNotEmpty) ...[
-                                const SizedBox(height: 4),
+                              if (sub.followersCount != null) ...[
                                 Text(
-                                  sub.description!,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                  '粉丝 ${_formatCount(sub.followersCount!)}',
                                   style: TextStyle(
                                       color: Theme.of(context)
                                           .colorScheme
                                           .onSurfaceVariant,
                                       fontSize: 12),
                                 ),
+                                const SizedBox(width: 16),
                               ],
-                              const SizedBox(height: 6),
-                              Row(
-                                children: [
-                                  if (sub.followersCount != null) ...[
-                                    Text(
-                                      '粉丝 ${_formatCount(sub.followersCount!)}',
-                                      style: TextStyle(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant,
-                                          fontSize: 12),
-                                    ),
-                                    const SizedBox(width: 16),
-                                  ],
-                                  Text(
-                                    '观看 ${_formatCount(views)}',
-                                    style: TextStyle(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurfaceVariant,
-                                        fontSize: 12),
-                                  ),
-                                ],
+                              Text(
+                                '观看 ${_formatCount(views)}',
+                                style: TextStyle(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                    fontSize: 12),
                               ),
                             ],
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              );
-            },
+              ),
+            ),
           );
+        },
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
         leading: isStandalone
             ? null
             : IconButton(
-                icon: const Icon(Icons.refresh),
+                icon: const Icon(Icons.arrow_back),
                 onPressed: () =>
-                    ref.read(subscriptionListProvider.notifier).refresh(),
+                    ref.read(navigationProvider.notifier).back(),
               ),
         title: const Text('订阅'),
         actions: [
@@ -535,7 +401,7 @@ class SubscriptionListScreen extends ConsumerWidget {
             ),
         ],
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(130),
+          preferredSize: const Size.fromHeight(80),
           child: _buildSearchAndSort(context, ref),
         ),
       ),
@@ -560,12 +426,6 @@ class SubscriptionListScreen extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: Column(
         children: [
-          if (state.showHistoryPrompt && !state.isEnriching)
-            _HistoryUpdateBanner(
-              count: state.unsyncedMissingCount,
-              onUpdate: () => notifier.enrichAll(),
-              onLater: () => notifier.dismissHistoryPrompt(),
-            ),
           SearchBar(
             hintText: '搜索订阅...',
             onChanged: notifier.setSearchQuery,
@@ -577,28 +437,6 @@ class SubscriptionListScreen extends ConsumerWidget {
                 const EdgeInsets.symmetric(horizontal: 16)),
           ),
           const SizedBox(height: 8),
-          if (state.isEnriching)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Column(
-                children: [
-                  LinearProgressIndicator(
-                    value: state.totalToEnrich > 0
-                        ? state.enrichedCount / state.totalToEnrich
-                        : 0,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '正在更新资料 ${state.enrichedCount}/${state.totalToEnrich}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
           Row(
             children: [
               Expanded(
@@ -662,31 +500,6 @@ class SubscriptionListScreen extends ConsumerWidget {
               ),
             ],
           ),
-          if (!state.isEnriching && !state.showHistoryPrompt)
-            FutureBuilder<List<Subscription>>(
-              future: Future.value(state.allSubscriptions
-                  .where((s) =>
-                      s.description == null && s.followersCount == null)
-                  .toList()),
-              builder: (context, snapshot) {
-                final missingCount = snapshot.data?.length ?? 0;
-                if (missingCount == 0) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () => notifier.enrichAll(),
-                      icon: const Icon(Icons.update, size: 16),
-                      label: Text('刷新全部资料 ($missingCount 个待更新)'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
         ],
       ),
     );
@@ -748,86 +561,6 @@ class _SortChip extends StatelessWidget {
             ],
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _HistoryUpdateBanner extends StatelessWidget {
-  final int count;
-  final VoidCallback onUpdate;
-  final VoidCallback onLater;
-
-  const _HistoryUpdateBanner({
-    required this.count,
-    required this.onUpdate,
-    required this.onLater,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.secondary),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.history_edu_outlined,
-                  size: 18, color: colorScheme.onSecondaryContainer),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '发现 $count 个订阅资料不完整',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                    color: colorScheme.onSecondaryContainer,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '这些订阅缺少简介和粉丝数，点击更新可一次性补全所有资料。',
-            style: TextStyle(
-              fontSize: 12,
-              color: colorScheme.onSecondaryContainer,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.tonal(
-                  onPressed: onUpdate,
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                  ),
-                  child: const Text('立即更新'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: onLater,
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                  ),
-                  child: const Text('稍后'),
-                ),
-              ),
-            ],
-          ),
-        ],
       ),
     );
   }
