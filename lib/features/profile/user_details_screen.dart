@@ -246,7 +246,6 @@ class UserDetailsScreen extends ConsumerWidget {
                                                 imageUrl: tweet.thumbnailUrl ?? tweet.mediaUrls.first,
                                                 fit: BoxFit.cover,
                                                 memCacheWidth: 600,
-                                                memCacheHeight: 600,
                                                 placeholder: (context, url) => Container(color: Colors.black12),
                                                 errorWidget: (context, url, error) => const Icon(Icons.error),
                                               ),
