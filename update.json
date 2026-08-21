@@ -1,9 +1,9 @@
 {
-  "version": "0.1.26",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/0.1.26/app-release.apk",
+  "version": "0.1.27",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/0.1.27/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/0.1.26/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/0.1.27/app-release.apk"
   ],
-  "notes": "SearchTimeline GET→POST修复404;移除全局限流阻塞(各端点独立处理429);订阅列表后台补全简介/粉丝数;去除用户媒体列表模式只留卡片;设置页显示当前版本号;版本号规范化。",
-  "publishedAt": "2026-08-20"
+  "notes": "订阅双向同步：手动订阅/取消订阅同时调用 X 关注/取消关注接口（优先 GraphQL，失败回退 legacy REST，best-effort 不阻塞 UI）；同步关注列表改为 merge 而非替换，保护手动订阅不被差量删除误删；订阅列表资料补全改为 3 路并发+限流冷却，新增手动「刷新全部资料」；排序 chips 改为 4 个等宽无图标按钮，点击已选 chip 切换升/降序。",
+  "publishedAt": "2026-08-21"
 }
