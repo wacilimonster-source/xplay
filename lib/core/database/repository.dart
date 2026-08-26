@@ -16,6 +16,28 @@ const String tableWatchedMedia = 'watched_media';
 class Repository {
   static Database? _database;
 
+  /// 构建"只保留选中类型"的 SQL 过滤条件。
+  /// 返回 null 表示不过滤（未选任何类型 = 显示全部）。
+  static String? _mediaFilterClause(Set<MediaFilter>? filters) {
+    if (filters == null || filters.isEmpty) return null;
+    final conditions = <String>[];
+    for (final filter in filters) {
+      switch (filter) {
+        case MediaFilter.video:
+          conditions.add('is_video = 1');
+          break;
+        case MediaFilter.image:
+          conditions.add("(media_urls != '[]' AND is_video = 0)");
+          break;
+        case MediaFilter.text:
+          conditions.add("media_urls = '[]'");
+          break;
+      }
+    }
+    if (conditions.isEmpty) return null;
+    return '(${conditions.join(' OR ')})';
+  }
+
   static Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
@@ -37,7 +59,7 @@ class Repository {
           'CREATE TABLE $tableAccounts (id TEXT PRIMARY KEY, screen_name TEXT, rest_id TEXT, auth_header TEXT)',
         );
         await db.execute(
-          'CREATE TABLE $tableSubscriptions (id TEXT PRIMARY KEY, screen_name TEXT, name TEXT, profile_image_url TEXT, description TEXT, followers_count INTEGER, following_count INTEGER)',
+          'CREATE TABLE $tableSubscriptions (id TEXT PRIMARY KEY, screen_name TEXT, name TEXT, profile_image_url TEXT, description TEXT, followers_count INTEGER, following_count INTEGER, profile_synced_at INTEGER)',
         );
         await db.execute(
           'CREATE TABLE $tableHashtags (tag TEXT PRIMARY KEY, added_at INTEGER)',
@@ -56,7 +78,9 @@ class Repository {
             played_count INTEGER DEFAULT 0,
             last_played_at INTEGER,
             duration_watched INTEGER DEFAULT 0,
-            last_suggested_at INTEGER
+            last_suggested_at INTEGER,
+            media_width INTEGER,
+            media_height INTEGER
           )
         ''');
         await db.execute(
@@ -376,24 +400,9 @@ class Repository {
 
     List<dynamic> whereArgs = [];
 
-    if (filters != null && filters.isNotEmpty) {
-      final conditions = <String>[];
-      for (final filter in filters) {
-        switch (filter) {
-          case MediaFilter.video:
-            conditions.add('is_video = 1');
-            break;
-          case MediaFilter.image:
-            conditions.add('(media_urls != "[]" AND is_video = 0)');
-            break;
-          case MediaFilter.text:
-            conditions.add('media_urls = "[]"');
-            break;
-        }
-      }
-      if (conditions.isNotEmpty) {
-        whereClause += ' AND NOT (${conditions.join(' OR ')})';
-      }
+    final filterClause = _mediaFilterClause(filters);
+    if (filterClause != null) {
+      whereClause += ' AND $filterClause';
     }
 
     final List<Map<String, dynamic>> maps = await db.query(
@@ -444,29 +453,8 @@ class Repository {
     }
 
     final db = await database;
-    String? whereClause;
+    String? whereClause = _mediaFilterClause(filters);
     List<dynamic>? whereArgs;
-
-    if (filters != null && filters.isNotEmpty) {
-      final conditions = <String>[];
-      for (final filter in filters) {
-        switch (filter) {
-          case MediaFilter.video:
-            conditions.add('is_video = 1');
-            break;
-          case MediaFilter.image:
-            conditions.add('(media_urls != "[]" AND is_video = 0)');
-            break;
-          case MediaFilter.text:
-            conditions.add('media_urls = "[]"');
-            break;
-        }
-      }
-      if (conditions.isNotEmpty) {
-        whereClause = 'NOT (${conditions.join(' OR ')})';
-        whereArgs = [];
-      }
-    }
 
     final List<Map<String, dynamic>> maps = await db.query(
       tableCachedMedia,
@@ -547,24 +535,9 @@ class Repository {
     String whereClause = "LOWER(REPLACE(user_handle, '@', '')) = ?";
     List<dynamic> whereArgs = [normalizedHandle];
 
-    if (filters != null && filters.isNotEmpty) {
-      final conditions = <String>[];
-      for (final filter in filters) {
-        switch (filter) {
-          case MediaFilter.video:
-            conditions.add('is_video = 1');
-            break;
-          case MediaFilter.image:
-            conditions.add('(media_urls != "[]" AND is_video = 0)');
-            break;
-          case MediaFilter.text:
-            conditions.add('media_urls = "[]"');
-            break;
-        }
-      }
-      if (conditions.isNotEmpty) {
-        whereClause += ' AND NOT (${conditions.join(' OR ')})';
-      }
+    final filterClause = _mediaFilterClause(filters);
+    if (filterClause != null) {
+      whereClause += ' AND $filterClause';
     }
 
     final List<Map<String, dynamic>> maps = await db.query(
@@ -602,24 +575,9 @@ class Repository {
     String whereClause = 'text LIKE ?';
     List<dynamic> whereArgs = ['%$hashtag%'];
 
-    if (filters != null && filters.isNotEmpty) {
-      final conditions = <String>[];
-      for (final filter in filters) {
-        switch (filter) {
-          case MediaFilter.video:
-            conditions.add('is_video = 1');
-            break;
-          case MediaFilter.image:
-            conditions.add('(media_urls != "[]" AND is_video = 0)');
-            break;
-          case MediaFilter.text:
-            conditions.add('media_urls = "[]"');
-            break;
-        }
-      }
-      if (conditions.isNotEmpty) {
-        whereClause += ' AND NOT (${conditions.join(' OR ')})';
-      }
+    final filterClause = _mediaFilterClause(filters);
+    if (filterClause != null) {
+      whereClause += ' AND $filterClause';
     }
 
     final List<Map<String, dynamic>> maps = await db.query(

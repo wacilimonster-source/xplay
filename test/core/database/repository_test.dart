@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:xplay/core/database/repository.dart';
 import 'package:xplay/core/models/tweet.dart';
+import 'package:xplay/features/settings/settings_provider.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -91,6 +92,7 @@ void main() {
           'id': 'prune_test_$i',
           'played_count': 1,
           'last_played_at': i * 1000,
+          'created_at': DateTime.now().millisecondsSinceEpoch,
           'text': 'Watched $i',
           'media_urls': '[]',
         });
@@ -105,6 +107,93 @@ void main() {
       expect(remainingIds.contains('prune_test_1'), false);
       expect(remainingIds.contains('prune_test_2'), false);
       expect(remainingIds.contains('prune_test_3'), true);
+    });
+  });
+
+  group('Repository media filter semantics (selected = keep)', () {
+    setUp(() async {
+      final db = await Repository.database;
+      await db.delete(tableCachedMedia);
+      await Repository.insertCachedMedia([
+        Tweet(
+          id: 'filter_video',
+          text: 'video',
+          userHandle: 'u',
+          mediaUrls: ['https://test.com/v.mp4'],
+          isVideo: true,
+        ),
+        Tweet(
+          id: 'filter_image',
+          text: 'image',
+          userHandle: 'u',
+          mediaUrls: ['https://test.com/i.jpg'],
+          isVideo: false,
+        ),
+        Tweet(
+          id: 'filter_text',
+          text: 'text',
+          userHandle: 'u',
+          mediaUrls: const [],
+          isVideo: false,
+        ),
+      ]);
+    });
+
+    Future<List<String>> candidateIds({
+      required bool avoidWatchedContent,
+      Set<MediaFilter>? filters,
+    }) async {
+      final tweets = await Repository.getCachedMediaCandidates(
+        10,
+        avoidWatchedContent: avoidWatchedContent,
+        filters: filters,
+      );
+      return tweets.map((t) => t.id).toList()..sort();
+    }
+
+    test('video-only selection keeps only videos', () async {
+      expect(
+        await candidateIds(
+            avoidWatchedContent: false, filters: {MediaFilter.video}),
+        ['filter_video'],
+      );
+    });
+
+    test('image+text selection excludes videos', () async {
+      expect(
+        await candidateIds(
+            avoidWatchedContent: false,
+            filters: {MediaFilter.image, MediaFilter.text}),
+        ['filter_image', 'filter_text'],
+      );
+    });
+
+    test('empty selection shows everything', () async {
+      expect(
+        await candidateIds(avoidWatchedContent: false, filters: {}),
+        ['filter_image', 'filter_text', 'filter_video'],
+      );
+    });
+
+    test('unplayed path honors the same semantics', () async {
+      expect(
+        await candidateIds(
+            avoidWatchedContent: true, filters: {MediaFilter.video}),
+        ['filter_video'],
+      );
+    });
+
+    test('user cache honors the same semantics', () async {
+      final tweets = await Repository.getUserCachedMedia('u', 10, filters: {
+        MediaFilter.video,
+      });
+      expect(tweets.map((t) => t.id).toList(), ['filter_video']);
+    });
+
+    test('hashtag cache honors the same semantics', () async {
+      final tweets = await Repository.getHashtagCachedMedia('video', 10,
+          filters: {MediaFilter.video});
+      expect(tweets.map((t) => t.id).toList(), ['filter_video']);
     });
   });
 }

@@ -168,7 +168,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               _SettingsTile(
                 icon: Icons.system_update_outlined,
                 title: '检查更新',
-                subtitle: _appVersion.isNotEmpty ? '当前版本 v$_appVersion' : '检查是否有新版本可用',
+                subtitle: _appVersion.isNotEmpty
+                    ? '当前版本 v$_appVersion'
+                    : '检查是否有新版本可用',
                 onTap: () => _checkForUpdate(context),
               ),
               _SettingsTile(
@@ -410,8 +412,13 @@ class PlaybackSettingsPage extends ConsumerWidget {
           ),
           const Divider(),
           const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 0),
             child: Text('内容过滤', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: Text('选中 = 只显示选中类型，全不选 = 显示全部',
+                style: TextStyle(fontSize: 12, color: Colors.grey)),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -805,7 +812,8 @@ class SearchSettingsPage extends ConsumerWidget {
           ),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Text('选中 = 屏蔽该类型内容，默认屏蔽图片和纯文本', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            child: Text('选中 = 只显示选中类型，全不选 = 显示全部',
+                style: TextStyle(fontSize: 12, color: Colors.grey)),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),

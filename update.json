@@ -1,9 +1,9 @@
 {
-  "version": "0.1.30",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/0.1.30/app-release.apk",
+  "version": "0.1.31",
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/0.1.31/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/0.1.30/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/0.1.31/app-release.apk"
   ],
-  "notes": "修复：信息流内容过滤功能（fetchTrendingMedia缺少_applyFilters调用+逻辑反转为只保留选中类型）。",
-  "publishedAt": "2026-08-21"
+  "notes": "修复：信息流内容过滤逻辑反转（repository SQL仍用NOT排除选中类型导致本地缓存绕过过滤）；修复全新安装缺media_width等列导致缓存失效；修复SQL双引号字面量在严格SQLite下报错；修正设置页过滤说明文案。",
+  "publishedAt": "2026-08-26"
 }
