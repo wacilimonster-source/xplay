@@ -19,11 +19,10 @@ void main() {
     test('initializes with values from SharedPreferences', () async {
       final container = ProviderContainer();
 
-      // Riverpod Notifiers initialize lazily. Read it once to trigger build.
-      container.read(settingsProvider);
-
-      // Give it a moment to complete _init()
-      await Future.delayed(const Duration(milliseconds: 100));
+      // Riverpod Notifiers initialize lazily. Read it once to trigger build,
+      // then await the preference load instead of sleeping a fixed 100ms
+      // (that raced the platform channel under load and flaked).
+      await container.read(settingsProvider.notifier).flush();
 
       final state = container.read(settingsProvider);
 
@@ -35,9 +34,11 @@ void main() {
     });
 
     test('defaults user detail watched filter to disabled', () async {
+      // This group's setUp seeds a value for this very key, so reset the store
+      // first or the test asserts "default" while reading a persisted true.
+      SharedPreferences.setMockInitialValues({});
       final container = ProviderContainer();
-      container.read(settingsProvider);
-      await Future.delayed(const Duration(milliseconds: 100));
+      await container.read(settingsProvider.notifier).flush();
 
       expect(
         container.read(settingsProvider).userDetailAvoidWatchedContent,
@@ -47,8 +48,7 @@ void main() {
 
     test('updates and persists values', () async {
       final container = ProviderContainer();
-      container.read(settingsProvider);
-      await Future.delayed(const Duration(milliseconds: 100));
+      await container.read(settingsProvider.notifier).flush();
 
       final notifier = container.read(settingsProvider.notifier);
       notifier.updateLoadBatchSize(50);

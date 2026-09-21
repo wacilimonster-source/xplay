@@ -18,7 +18,18 @@ class UpdateService {
   static bool _downloadInProgress = false;
 
   /// 拉取轻量更新清单。时间戳和 no-cache 用于绕过 GitHub/CDN 的旧缓存。
+  /// 行为保持原样：只有存在未被忽略的新版本时返回 [UpdateInfo]，其余情况返回 null。
+  /// 需要区分"已是最新"和"检查失败"时请改用 [checkDetailed]。
   static Future<UpdateInfo?> checkForUpdate({
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    final result = await checkDetailed(timeout: timeout);
+    return result.updateInfo;
+  }
+
+  /// 带状态原因的版本检查。旧实现把所有失败都折叠成 null，
+  /// 于是断网也会被调用方提示成"当前已是最新版本"。
+  static Future<UpdateCheckResult> checkDetailed({
     Duration timeout = const Duration(seconds: 12),
   }) async {
     try {
@@ -36,37 +47,64 @@ class UpdateService {
         },
       ).timeout(timeout);
 
-      if (response.statusCode != HttpStatus.ok) return null;
+      if (response.statusCode != HttpStatus.ok) {
+        return UpdateCheckResult.networkError(
+            '更新清单返回 HTTP ${response.statusCode}');
+      }
 
       final rawData = jsonDecode(utf8.decode(response.bodyBytes));
-      if (rawData is! Map<String, dynamic>) return null;
+      if (rawData is! Map<String, dynamic>) {
+        return const UpdateCheckResult.networkError('更新清单不是有效的 JSON 对象');
+      }
 
       final version = _cleanVersion(rawData['version']?.toString() ?? '');
-      if (version.isEmpty) return null;
+      if (version.isEmpty) {
+        return const UpdateCheckResult.networkError('更新清单缺少版本号');
+      }
 
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = _cleanVersion(packageInfo.version);
-      if (!_isNewerVersion(version, currentVersion)) {
+
+      // Version alone is not enough: rebuilding the same version (0.1.31+32) is
+      // a real new APK. When the manifest carries a "build" field, compare it as
+      // a tie-breaker.
+      final manifestBuild =
+          int.tryParse(rawData['build']?.toString().trim() ?? '');
+      final currentBuild = int.tryParse(packageInfo.buildNumber);
+      final isNewer = _isNewerVersion(version, currentVersion) ||
+          (version == currentVersion &&
+              manifestBuild != null &&
+              currentBuild != null &&
+              manifestBuild > currentBuild);
+      if (!isNewer) {
         await _markChecked();
-        return null;
+        return const UpdateCheckResult.upToDate();
       }
       if (await isVersionIgnored(version)) {
         await _markChecked();
-        return null;
+        return const UpdateCheckResult.upToDate();
       }
 
       final urls = _parseDownloadUrls(rawData, version);
       await _markChecked();
-      return UpdateInfo(
+      return UpdateCheckResult.updateAvailable(UpdateInfo(
         version: version,
         releaseNotes: rawData['notes']?.toString().trim().isNotEmpty == true
             ? rawData['notes'].toString()
             : '暂无更新说明',
         apkUrls: urls,
         publishedAt: rawData['publishedAt']?.toString() ?? '',
-      );
-    } catch (_) {
-      return null;
+      ));
+    } on TimeoutException {
+      return const UpdateCheckResult.networkError('请求超时');
+    } on SocketException {
+      return const UpdateCheckResult.networkError('设备无法访问网络');
+    } on http.ClientException catch (error) {
+      return UpdateCheckResult.networkError(error.message);
+    } on FormatException catch (error) {
+      return UpdateCheckResult.error('更新清单解析失败：${error.message}');
+    } catch (error) {
+      return UpdateCheckResult.error('检查过程出错：$error');
     }
   }
 
@@ -190,11 +228,15 @@ class UpdateService {
     if (apkUrl.isNotEmpty && !urls.contains(apkUrl)) urls.add(apkUrl);
 
     // 清单没有地址时，按约定补上 Release asset 地址。
+    // Existing releases use a bare tag ("0.1.31"); some tooling prefixes "v".
+    // Offer both so a missing asset on one tag still resolves on the other.
     if (urls.isEmpty) {
-      final tag = 'v$version';
-      urls.add(
-        'https://github.com/wacilimonster-source/xplay/releases/download/$tag/app-release.apk',
-      );
+      const repo = 'wacilimonster-source/xplay';
+      for (final tag in [version, 'v$version']) {
+        urls.add(
+          'https://github.com/$repo/releases/download/$tag/app-release.apk',
+        );
+      }
     }
     return urls;
   }
@@ -253,6 +295,40 @@ class UpdateService {
         ? null
         : DateTime.fromMillisecondsSinceEpoch(timestamp);
   }
+}
+
+/// 版本检查结果的状态。
+enum UpdateCheckStatus { upToDate, updateAvailable, networkError, error }
+
+/// [UpdateService.checkDetailed] 的返回值：把"没有新版本"和"根本没检查成功"分开。
+class UpdateCheckResult {
+  final UpdateCheckStatus status;
+
+  /// status == [UpdateCheckStatus.updateAvailable] 时非空。
+  final UpdateInfo? updateInfo;
+
+  /// 失败原因（HTTP 状态码 / 异常信息），成功时为 null。
+  final String? reason;
+
+  const UpdateCheckResult._(this.status, {this.updateInfo, this.reason});
+
+  const UpdateCheckResult.upToDate() : this._(UpdateCheckStatus.upToDate);
+
+  const UpdateCheckResult.networkError(String reason)
+      : this._(UpdateCheckStatus.networkError, reason: reason);
+
+  const UpdateCheckResult.error(String reason)
+      : this._(UpdateCheckStatus.error, reason: reason);
+
+  factory UpdateCheckResult.updateAvailable(UpdateInfo info) =>
+      UpdateCheckResult._(UpdateCheckStatus.updateAvailable, updateInfo: info);
+
+  /// 展示给用户的失败原因，保证非空。
+  String get failureReason =>
+      (reason == null || reason!.isEmpty) ? '未知原因' : reason!;
+
+  @override
+  String toString() => 'UpdateCheckResult($status, reason: $reason)';
 }
 
 class UpdateInfo {

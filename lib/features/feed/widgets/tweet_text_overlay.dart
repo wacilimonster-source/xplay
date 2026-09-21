@@ -110,6 +110,10 @@ class _TweetTextOverlayState extends ConsumerState<TweetTextOverlay> {
             final text = widget.tweet.text.isEmpty
                 ? url
                 : '${widget.tweet.text}\n\n$url';
+            // Cache before the await: `context` may be defunct by the time the
+            // share sheet closes, and the State's own `mounted` (not an
+            // unrelated context check) is what guards it.
+            final messenger = ScaffoldMessenger.of(context);
             try {
               await SharePlus.instance.share(
                 ShareParams(
@@ -120,14 +124,13 @@ class _TweetTextOverlayState extends ConsumerState<TweetTextOverlay> {
               );
             } catch (e) {
               AppLogger.log('XFLOW: Share failed: $e');
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('分享失败:${e.toString()}'),
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-              }
+              if (!mounted) return;
+              messenger.showSnackBar(
+                SnackBar(
+                  content: Text('分享失败:${e.toString()}'),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
             }
           },
         ),

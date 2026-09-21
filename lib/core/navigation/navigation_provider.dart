@@ -9,12 +9,19 @@ class NavigationState {
   final String? userMediaInitialTweetId;
   final String? selectedHashtag;
 
+  /// The topic feed the user was viewing when they opened a profile.
+  /// Selecting a user used to clear `selectedHashtag` as well, so pressing back
+  /// dumped the user on the main feed and the topic (with its scroll position)
+  /// was simply gone.
+  final String? originHashtag;
+
   NavigationState({
     this.currentTab = MainTab.media,
     this.selectedUser,
     this.userMediaInitialIndex,
     this.userMediaInitialTweetId,
     this.selectedHashtag,
+    this.originHashtag,
   });
 
   NavigationState copyWith({
@@ -23,9 +30,11 @@ class NavigationState {
     int? userMediaInitialIndex,
     String? userMediaInitialTweetId,
     String? selectedHashtag,
+    String? originHashtag,
     bool clearUser = false,
     bool clearMediaIndex = false,
     bool clearHashtag = false,
+    bool clearOriginHashtag = false,
   }) {
     return NavigationState(
       currentTab: currentTab ?? this.currentTab,
@@ -36,9 +45,11 @@ class NavigationState {
       userMediaInitialTweetId: (clearUser || clearMediaIndex)
           ? null
           : (userMediaInitialTweetId ?? this.userMediaInitialTweetId),
-      selectedHashtag: (clearHashtag || clearUser)
+      selectedHashtag:
+          clearHashtag ? null : (selectedHashtag ?? this.selectedHashtag),
+      originHashtag: clearOriginHashtag
           ? null
-          : (selectedHashtag ?? this.selectedHashtag),
+          : (originHashtag ?? this.originHashtag),
     );
   }
 }
@@ -48,13 +59,19 @@ class NavigationNotifier extends Notifier<NavigationState> {
   NavigationState build() => NavigationState();
 
   void setTab(MainTab tab) {
-    state =
-        state.copyWith(currentTab: tab, clearUser: true, clearHashtag: true);
+    state = state.copyWith(
+        currentTab: tab,
+        clearUser: true,
+        clearHashtag: true,
+        clearOriginHashtag: true);
   }
 
   void selectUser(String screenName) {
     state = state.copyWith(
-        selectedUser: screenName, clearMediaIndex: true, clearHashtag: true);
+        selectedUser: screenName,
+        clearMediaIndex: true,
+        clearHashtag: true,
+        originHashtag: state.selectedHashtag);
   }
 
   void openUserMedia(String screenName, int index, {String? tweetId}) {
@@ -62,7 +79,8 @@ class NavigationNotifier extends Notifier<NavigationState> {
         selectedUser: screenName,
         userMediaInitialIndex: index,
         userMediaInitialTweetId: tweetId,
-        clearHashtag: true);
+        clearHashtag: true,
+        originHashtag: state.selectedHashtag);
   }
 
   void selectHashtag(String hashtag) {
@@ -75,7 +93,14 @@ class NavigationNotifier extends Notifier<NavigationState> {
     } else if (state.userMediaInitialIndex != null) {
       state = state.copyWith(clearMediaIndex: true);
     } else if (state.selectedUser != null) {
-      state = state.copyWith(clearUser: true);
+      final origin = state.originHashtag;
+      state = state.copyWith(
+        clearUser: true,
+        clearOriginHashtag: true,
+        // Reopen the topic feed we came from (explicit assignment, because
+        // `clearUser` also nulls `selectedHashtag`).
+        selectedHashtag: origin,
+      );
     }
   }
 }

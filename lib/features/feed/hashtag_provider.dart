@@ -17,7 +17,9 @@ class HashtagListNotifier extends AsyncNotifier<List<String>> {
   }
 
   Future<void> removeHashtag(String tag) async {
-    await Repository.deleteHashtag(tag);
+    // Tags are stored normalised with a leading '#'; deleting by a value that
+    // lacks it matched nothing and the tag reappeared.
+    await Repository.deleteHashtag(_normalizeHashtag(tag));
     ref.invalidateSelf();
   }
 }
@@ -33,13 +35,30 @@ String _normalizeHashtag(String hashtag) {
   return trimmed.startsWith('#') ? trimmed : '#$trimmed';
 }
 
-String _mediaSearchQuery(String hashtag) {
+/// Builds the search query for a topic, honouring the content-type filters.
+/// `(filter:images OR filter:videos)` used to be hard-coded, which meant the
+/// "只看视频 / 只看图片 / 只看文字" chips had no effect at all in this feed.
+String _searchQuery(String hashtag, Set<MediaFilter> filters) {
   final normalized = _normalizeHashtag(hashtag);
-  return '$normalized (filter:images OR filter:videos)';
-}
+  if (filters.isEmpty) {
+    return '$normalized (filter:images OR filter:videos)';
+  }
+  final wantsVideo = filters.contains(MediaFilter.video);
+  final wantsImage = filters.contains(MediaFilter.image);
+  final wantsText = filters.contains(MediaFilter.text);
 
-String _plainSearchQuery(String hashtag) {
-  return _normalizeHashtag(hashtag);
+  if (wantsVideo && wantsImage && !wantsText) {
+    return '$normalized (filter:images OR filter:videos)';
+  }
+  if (wantsVideo && !wantsImage && !wantsText) {
+    return '$normalized filter:videos';
+  }
+  if (wantsImage && !wantsVideo && !wantsText) {
+    return '$normalized filter:images';
+  }
+  // Text-only (or a mixed selection): search the bare topic and let
+  // fetchTrendingMedia narrow it down / _applyFilters post-filter it.
+  return normalized;
 }
 
 class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
@@ -47,39 +66,48 @@ class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
   final String arg;
   String? _activeQuery;
   FeedSort _activeSort = FeedSort.trending;
+  bool _refreshInFlight = false;
 
   @override
   Future<FeedState> build() async {
     final hashtag = arg;
     final client = ref.watch(twitterClientProvider);
-    final settings = ref.watch(settingsProvider);
-    final watched = settings.avoidWatchedContent
+    final settings = ref.watch(settingsProvider.select((s) => s.fetchSnapshot));
+    final live = ref.read(settingsProvider);
+    final watched = live.avoidWatchedContent
         ? await Repository.getWatchedIdentifiers()
         : const <String>{};
-    final mediaQuery = _mediaSearchQuery(hashtag);
-    final plainQuery = _plainSearchQuery(hashtag);
+    final mediaQuery = _searchQuery(hashtag, settings.filters);
+    final plainQuery = _normalizeHashtag(hashtag);
 
     var response = await client.fetchTrendingMedia(
       query: mediaQuery,
-      count: settings.timelineBatchSize,
+      count: live.timelineBatchSize,
+      filters: live.filters,
       sort: FeedSort.trending,
     );
     _activeQuery = mediaQuery;
     _activeSort = FeedSort.trending;
 
-    if (response.tweets.isEmpty) {
+    if (response.tweets.isEmpty && !response.rateLimited) {
       response = await client.fetchTrendingMedia(
         query: mediaQuery,
-        count: settings.timelineBatchSize,
+        count: live.timelineBatchSize,
+        filters: live.filters,
         sort: FeedSort.latest,
       );
       _activeSort = FeedSort.latest;
     }
 
-    if (response.tweets.isEmpty) {
+    // Only widen to a plain text search when the media query genuinely found
+    // nothing (not when we are rate limited or the ids are broken).
+    if (response.tweets.isEmpty &&
+        !response.rateLimited &&
+        !response.allPathsFailed) {
       response = await client.fetchTrendingMedia(
         query: plainQuery,
-        count: settings.timelineBatchSize,
+        count: live.timelineBatchSize,
+        filters: live.filters,
         sort: FeedSort.latest,
       );
       _activeQuery = plainQuery;
@@ -91,18 +119,36 @@ class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
       tweets: filteredTweets,
       cursorBottom: response.cursorBottom,
       isRefreshing: false,
+      hasMore: response.cursorBottom != null,
+      rateLimited: response.rateLimited,
     );
   }
 
   Future<void> refresh() async {
-    state = const AsyncLoading();
-    ref.invalidateSelf();
+    if (_refreshInFlight) return;
+    _refreshInFlight = true;
+    final current = state.value;
+    if (current != null) {
+      state = AsyncData(current.copyWith(
+          isRefreshing: true, clearCursor: true, hasMore: true));
+    }
+    try {
+      ref.invalidateSelf();
+      await future;
+    } catch (_) {
+      if (current != null) {
+        state = AsyncData(current.copyWith(isRefreshing: false));
+      }
+    } finally {
+      _refreshInFlight = false;
+    }
   }
 
   Future<void> fetchMore() async {
     final currentState = state.value;
     if (currentState == null ||
         currentState.isLoadingMore ||
+        !currentState.hasMore ||
         currentState.cursorBottom == null) {
       return;
     }
@@ -114,29 +160,38 @@ class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
     final watched = settings.avoidWatchedContent
         ? await Repository.getWatchedIdentifiers()
         : const <String>{};
-    final query = _activeQuery ?? _mediaSearchQuery(arg);
+    final query = _activeQuery ?? _searchQuery(arg, settings.filters);
 
     try {
       final response = await client.fetchTrendingMedia(
         query: query,
         cursor: currentState.cursorBottom,
         count: settings.loadBatchSize,
+        filters: settings.filters,
         sort: _activeSort,
       );
 
-      final seenIds = currentState.tweets.map((t) => t.id).toSet();
+      // Use this notifier's own `state` (reading the provider from inside itself
+      // trips Riverpod's "A provider cannot depend on itself" assertion): a
+      // concurrent `refresh()` may have replaced the list, and writing the old
+      // snapshot back would drop the new page.
+      final latest = state.value ?? currentState;
+      final seenIds = latest.tweets.map((t) => t.id).toSet();
       final uniqueNew = Repository.filterUnwatched(
         response.tweets.where((t) => !seenIds.contains(t.id)).toList(),
         watched,
       );
 
-      state = AsyncData(currentState.copyWith(
-        tweets: [...currentState.tweets, ...uniqueNew],
+      state = AsyncData(latest.copyWith(
+        tweets: [...latest.tweets, ...uniqueNew],
         cursorBottom: response.cursorBottom,
         isLoadingMore: false,
+        hasMore: response.cursorBottom != null,
+        rateLimited: response.rateLimited,
       ));
     } catch (e) {
-      state = AsyncData(currentState.copyWith(isLoadingMore: false));
+      final latest = state.value ?? currentState;
+      state = AsyncData(latest.copyWith(isLoadingMore: false));
     }
   }
 }

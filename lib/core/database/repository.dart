@@ -15,6 +15,7 @@ const String tableWatchedMedia = 'watched_media';
 
 class Repository {
   static Database? _database;
+  static Future<Database>? _opening;
 
   /// 构建"只保留选中类型"的 SQL 过滤条件。
   /// 返回 null 表示不过滤（未选任何类型 = 显示全部）。
@@ -38,10 +39,20 @@ class Repository {
     return '(${conditions.join(' OR ')})';
   }
 
+  /// Single-flight open: two concurrent callers used to each run
+  /// `openDatabase`, leaking one handle (and, on the in-memory test database,
+  /// handing each caller a *different* empty database).
   static Future<Database> get database async {
-    if (_database != null) return _database!;
-    _database = await _initDatabase();
-    return _database!;
+    final opened = _database;
+    if (opened != null) return opened;
+    return _opening ??= _initDatabase().then((db) {
+      _database = db;
+      _opening = null;
+      return db;
+    }, onError: (Object error, StackTrace stack) {
+      _opening = null;
+      throw error;
+    });
   }
 
   static Future<Database> _initDatabase() async {
@@ -53,13 +64,16 @@ class Repository {
     }
     return await openDatabase(
       path,
-      version: 12,
+      version: 13,
       onCreate: (db, version) async {
         await db.execute(
           'CREATE TABLE $tableAccounts (id TEXT PRIMARY KEY, screen_name TEXT, rest_id TEXT, auth_header TEXT)',
         );
         await db.execute(
           'CREATE TABLE $tableSubscriptions (id TEXT PRIMARY KEY, screen_name TEXT, name TEXT, profile_image_url TEXT, description TEXT, followers_count INTEGER, following_count INTEGER, profile_synced_at INTEGER)',
+        );
+        await db.execute(
+          'CREATE UNIQUE INDEX idx_subs_screen ON $tableSubscriptions (LOWER(screen_name))',
         );
         await db.execute(
           'CREATE TABLE $tableHashtags (tag TEXT PRIMARY KEY, added_at INTEGER)',
@@ -80,7 +94,11 @@ class Repository {
             duration_watched INTEGER DEFAULT 0,
             last_suggested_at INTEGER,
             media_width INTEGER,
-            media_height INTEGER
+            media_height INTEGER,
+            inserted_at INTEGER,
+            is_liked INTEGER DEFAULT 0,
+            favorite_count INTEGER DEFAULT 0,
+            reply_count INTEGER DEFAULT 0
           )
         ''');
         await db.execute(
@@ -92,6 +110,9 @@ class Repository {
         await db.execute(
           'CREATE INDEX idx_suggested ON $tableCachedMedia (last_suggested_at)',
         );
+        await db.execute(
+          'CREATE INDEX idx_created_at ON $tableCachedMedia (created_at DESC)',
+        );
         await db.execute('''
           CREATE TABLE $tableWatchedMedia (
             id TEXT PRIMARY KEY,
@@ -102,8 +123,7 @@ class Repository {
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
-          await db
-              .execute('ALTER TABLE $tableAccounts ADD COLUMN rest_id TEXT');
+          await _addColumnIfMissing(db, tableAccounts, 'rest_id', 'TEXT');
         }
         if (oldVersion < 3) {
           await db.execute(
@@ -111,12 +131,12 @@ class Repository {
           );
         }
         if (oldVersion < 4) {
-          await db.execute(
-              'ALTER TABLE $tableSubscriptions ADD COLUMN description TEXT');
-          await db.execute(
-              'ALTER TABLE $tableSubscriptions ADD COLUMN followers_count INTEGER');
-          await db.execute(
-              'ALTER TABLE $tableSubscriptions ADD COLUMN following_count INTEGER');
+          await _addColumnIfMissing(
+              db, tableSubscriptions, 'description', 'TEXT');
+          await _addColumnIfMissing(
+              db, tableSubscriptions, 'followers_count', 'INTEGER');
+          await _addColumnIfMissing(
+              db, tableSubscriptions, 'following_count', 'INTEGER');
         }
         if (oldVersion < 5) {
           await db.execute('''
@@ -141,8 +161,7 @@ class Repository {
           );
         }
         if (oldVersion < 7) {
-          await db.execute(
-              'ALTER TABLE $tableCachedMedia ADD COLUMN media_key TEXT');
+          await _addColumnIfMissing(db, tableCachedMedia, 'media_key', 'TEXT');
           await db.execute(
               'CREATE INDEX IF NOT EXISTS idx_media_key ON $tableCachedMedia (media_key)');
         }
@@ -152,8 +171,8 @@ class Repository {
           );
         }
         if (oldVersion < 9) {
-          await db.execute(
-              'ALTER TABLE $tableCachedMedia ADD COLUMN last_suggested_at INTEGER');
+          await _addColumnIfMissing(
+              db, tableCachedMedia, 'last_suggested_at', 'INTEGER');
           await db.execute(
               'CREATE INDEX IF NOT EXISTS idx_suggested ON $tableCachedMedia (last_suggested_at)');
         }
@@ -167,17 +186,57 @@ class Repository {
           ''');
         }
         if (oldVersion < 11) {
-          await db.execute(
-              'ALTER TABLE $tableCachedMedia ADD COLUMN media_width INTEGER');
-          await db.execute(
-              'ALTER TABLE $tableCachedMedia ADD COLUMN media_height INTEGER');
+          await _addColumnIfMissing(
+              db, tableCachedMedia, 'media_width', 'INTEGER');
+          await _addColumnIfMissing(
+              db, tableCachedMedia, 'media_height', 'INTEGER');
         }
         if (oldVersion < 12) {
+          await _addColumnIfMissing(
+              db, tableSubscriptions, 'profile_synced_at', 'INTEGER');
+        }
+        if (oldVersion < 13) {
+          // Like state + a guaranteed-present timestamp, so pruning can stop
+          // treating "no date" as "garbage" (it used to delete every row).
+          await _addColumnIfMissing(
+              db, tableCachedMedia, 'inserted_at', 'INTEGER');
+          await _addColumnIfMissing(
+              db, tableCachedMedia, 'is_liked', 'INTEGER DEFAULT 0');
+          await _addColumnIfMissing(
+              db, tableCachedMedia, 'favorite_count', 'INTEGER DEFAULT 0');
+          await _addColumnIfMissing(
+              db, tableCachedMedia, 'reply_count', 'INTEGER DEFAULT 0');
           await db.execute(
-              'ALTER TABLE $tableSubscriptions ADD COLUMN profile_synced_at INTEGER');
+            'CREATE INDEX IF NOT EXISTS idx_created_at ON $tableCachedMedia (created_at DESC)',
+          );
+          // The same handle could be stored twice: once keyed by screen_name
+          // (follow-list sync) and once keyed by rest_id (profile fetch /
+          // follow button). Collapse to one row per handle, then enforce it.
+          await db.execute(
+            'DELETE FROM $tableSubscriptions WHERE rowid NOT IN '
+            '(SELECT MAX(rowid) FROM $tableSubscriptions GROUP BY LOWER(screen_name))',
+          );
+          await db.execute(
+            'CREATE UNIQUE INDEX IF NOT EXISTS idx_subs_screen '
+            'ON $tableSubscriptions (LOWER(screen_name))',
+          );
         }
       },
     );
+  }
+
+  /// `ALTER TABLE ... ADD COLUMN` throws when the column is already there,
+  /// which aborts the rest of the migration. Add only when missing.
+  static Future<void> _addColumnIfMissing(
+    Database db,
+    String table,
+    String column,
+    String definition,
+  ) async {
+    final columns = await db.rawQuery('PRAGMA table_info($table)');
+    final exists = columns.any((row) => (row['name'] as String?) == column);
+    if (exists) return;
+    await db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
   }
 
   static Future<void> addHashtag(String tag) async {
@@ -212,9 +271,24 @@ class Repository {
 
   static Future<List<Account>> getAccounts() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(tableAccounts);
+    // Newest row first: `accounts.first` is the account the app signs in with,
+    // and an unordered query returned the oldest (usually a stale) row.
+    final List<Map<String, dynamic>> maps =
+        await db.query(tableAccounts, orderBy: 'rowid DESC');
     return List.generate(maps.length, (i) {
       return Account.fromMap(maps[i]);
+    });
+  }
+
+  /// Keeps exactly one stored account (the newest). The app has no real
+  /// multi-account UI, and leftover rows made `init()` sign in with a stale
+  /// session after a re-login.
+  static Future<void> replaceAccount(Account account) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete(tableAccounts);
+      await txn.insert(tableAccounts, account.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace);
     });
   }
 
@@ -250,16 +324,8 @@ class Repository {
     await db.delete(tableSubscriptions);
   }
 
-  static Map<String, dynamic> _subscriptionWriteMap(Subscription sub) => {
-        'id': sub.id,
-        'screen_name': sub.screenName,
-        'name': sub.name,
-        'profile_image_url': sub.profileImageUrl,
-        'description': sub.description,
-        'followers_count': sub.followersCount,
-        'following_count': sub.followingCount,
-        'profile_synced_at': sub.profileSyncedAt,
-      };
+  static Map<String, dynamic> _subscriptionWriteMap(Subscription sub) =>
+      sub.toMap();
 
   /// Inserts or updates a subscription while preserving any locally cached
   /// non-null fields that the incoming data does not carry (merge, not replace).
@@ -334,9 +400,13 @@ class Repository {
       [sub.screenName.toLowerCase()],
     );
     if (exists.isEmpty) return;
+    final content = _subscriptionWriteMap(sub)
+      ..remove('id') // Never rewrite the primary key: doing so used to orphan
+      // the old row, and the next merge then inserted a duplicate subscription.
+      ..['profile_synced_at'] = DateTime.now().millisecondsSinceEpoch;
     await db.update(
       tableSubscriptions,
-      _subscriptionWriteMap(sub),
+      content,
       where: 'LOWER(screen_name) = ?',
       whereArgs: [sub.screenName.toLowerCase()],
     );
@@ -363,30 +433,111 @@ class Repository {
     }
   }
 
+  /// Upserts fetched tweets.
+  ///
+  /// Content columns take the newest values, so a row that was first stored
+  /// without dimensions/thumbnail/date gets repaired on the next sighting
+  /// (`ConflictAlgorithm.ignore` used to freeze the broken row forever). Watch
+  /// statistics (`played_count`, `last_played_at`, `duration_watched`,
+  /// `last_suggested_at`) are deliberately absent from the SET list so they
+  /// survive, and like state only moves towards "liked" so a stale
+  /// `favorited: false` from one endpoint cannot wipe a like the user just made.
   static Future<void> insertCachedMedia(List<Tweet> tweets) async {
+    if (tweets.isEmpty) return;
     final db = await database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    const sql = '''
+      INSERT INTO $tableCachedMedia (
+        id, text, user_handle, user_avatar_url, media_key, media_urls,
+        thumbnail_url, is_video, created_at, media_width, media_height,
+        inserted_at, is_liked, favorite_count, reply_count)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET
+        text = excluded.text,
+        user_handle = excluded.user_handle,
+        user_avatar_url = COALESCE(excluded.user_avatar_url, user_avatar_url),
+        media_key = COALESCE(excluded.media_key, media_key),
+        media_urls = excluded.media_urls,
+        thumbnail_url = COALESCE(excluded.thumbnail_url, thumbnail_url),
+        is_video = excluded.is_video,
+        created_at = COALESCE(excluded.created_at, created_at),
+        media_width = COALESCE(excluded.media_width, media_width),
+        media_height = COALESCE(excluded.media_height, media_height),
+        inserted_at = excluded.inserted_at,
+        is_liked = MAX(excluded.is_liked, IFNULL(is_liked, 0)),
+        favorite_count = MAX(excluded.favorite_count, IFNULL(favorite_count, 0)),
+        reply_count = MAX(excluded.reply_count, IFNULL(reply_count, 0))
+    ''';
     final batch = db.batch();
-    for (var tweet in tweets) {
-      batch.insert(
-        tableCachedMedia,
-        {
-          'id': tweet.id,
-          'text': tweet.text,
-          'user_handle': tweet.userHandle,
-          'user_avatar_url': tweet.userAvatarUrl,
-          'media_key': tweet.mediaKey,
-          'media_urls': jsonEncode(tweet.mediaUrls),
-          'thumbnail_url': tweet.thumbnailUrl,
-          'is_video': tweet.isVideo ? 1 : 0,
-          'created_at': tweet.createdAt?.millisecondsSinceEpoch,
-          'media_width': tweet.mediaWidth,
-          'media_height': tweet.mediaHeight,
-        },
-        conflictAlgorithm: ConflictAlgorithm
-            .ignore, // Don't overwrite play counts if already exists
-      );
+    for (final tweet in tweets) {
+      batch.rawInsert(sql, [
+        tweet.id,
+        tweet.text,
+        tweet.userHandle,
+        tweet.userAvatarUrl,
+        tweet.mediaKey,
+        jsonEncode(tweet.mediaUrls),
+        tweet.thumbnailUrl,
+        tweet.isVideo ? 1 : 0,
+        tweet.createdAt?.millisecondsSinceEpoch,
+        tweet.mediaWidth,
+        tweet.mediaHeight,
+        now,
+        tweet.isLiked ? 1 : 0,
+        tweet.favoriteCount,
+        tweet.replyCount,
+      ]);
     }
     await batch.commit(noResult: true);
+  }
+
+  /// Records the like state the user just produced locally, so it survives the
+  /// item being re-read from the cache instead of flipping back to "0 likes".
+  static Future<void> updateLikeState(String id,
+      {required bool isLiked, int? favoriteCount}) async {
+    final db = await database;
+    await db.update(
+      tableCachedMedia,
+      {
+        'is_liked': isLiked ? 1 : 0,
+        if (favoriteCount != null) 'favorite_count': favoriteCount,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Shared row -> [Tweet] mapping. A corrupt `media_urls` blob must not take
+  /// the whole query down, so it degrades to "no media".
+  static Tweet _tweetFromRow(Map<String, dynamic> row) {
+    List<String> urls = const [];
+    final raw = row['media_urls'] as String?;
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        urls = List<String>.from(jsonDecode(raw) as List);
+      } catch (e) {
+        urls = const [];
+      }
+    }
+    final createdAtMs = row['created_at'] as int? ?? row['inserted_at'] as int?;
+    return Tweet(
+      id: row['id'] as String,
+      text: (row['text'] as String?) ?? '',
+      userHandle: (row['user_handle'] as String?) ?? '@Unknown',
+      userAvatarUrl: row['user_avatar_url'] as String?,
+      mediaKey: row['media_key'] as String?,
+      mediaUrls: urls,
+      thumbnailUrl: row['thumbnail_url'] as String?,
+      isVideo: (row['is_video'] as int? ?? 0) == 1,
+      createdAt: createdAtMs == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(createdAtMs, isUtc: true),
+      isLiked: (row['is_liked'] as int? ?? 0) == 1,
+      favoriteCount: row['favorite_count'] as int? ?? 0,
+      replyCount: row['reply_count'] as int? ?? 0,
+      mediaWidth: row['media_width'] as int?,
+      mediaHeight: row['media_height'] as int?,
+    );
   }
 
   static Future<List<Tweet>> getUnplayedCachedMedia(int limit,
@@ -415,32 +566,15 @@ class Repository {
 
     if (maps.isEmpty) return [];
 
-    final results = List.generate(maps.length, (i) {
-      return Tweet(
-        id: maps[i]['id'] as String,
-        text: maps[i]['text'] as String,
-        userHandle: maps[i]['user_handle'] as String,
-        userAvatarUrl: maps[i]['user_avatar_url'] as String?,
-        mediaKey: maps[i]['media_key'] as String?,
-        mediaUrls:
-            List<String>.from(jsonDecode(maps[i]['media_urls'] as String)),
-        thumbnailUrl: maps[i]['thumbnail_url'] as String?,
-        isVideo: (maps[i]['is_video'] as int) == 1,
-        createdAt: maps[i]['created_at'] != null
-            ? DateTime.fromMillisecondsSinceEpoch(maps[i]['created_at'] as int)
-            : null,
-        mediaWidth: maps[i]['media_width'] as int?,
-        mediaHeight: maps[i]['media_height'] as int?,
-      );
-    });
-
-    // Mark these as suggested
-    if (results.isNotEmpty) {
-      final ids = results.map((t) => t.id).toList();
-      await markAsSuggested(ids);
+    // Shuffle first and serve `limit` rows, marking only *those* as suggested.
+    // The previous version marked all `limit * 2` fetched rows, so the half
+    // that was never shown got pushed to the back of the queue for nothing.
+    final results = maps.map(_tweetFromRow).toList()..shuffle();
+    final served = results.take(limit).toList();
+    if (served.isNotEmpty) {
+      await markAsSuggested(served.map((t) => t.id).toList());
     }
-
-    return (results..shuffle()).take(limit).toList();
+    return served;
   }
 
   static Future<List<Tweet>> getCachedMediaCandidates(
@@ -464,32 +598,14 @@ class Repository {
       limit: limit * 2, // Fetch more to allow for shuffling
     );
 
-    final results = List.generate(maps.length, (i) {
-      return Tweet(
-        id: maps[i]['id'] as String,
-        text: maps[i]['text'] as String,
-        userHandle: maps[i]['user_handle'] as String,
-        userAvatarUrl: maps[i]['user_avatar_url'] as String?,
-        mediaKey: maps[i]['media_key'] as String?,
-        mediaUrls:
-            List<String>.from(jsonDecode(maps[i]['media_urls'] as String)),
-        thumbnailUrl: maps[i]['thumbnail_url'] as String?,
-        isVideo: (maps[i]['is_video'] as int) == 1,
-        createdAt: maps[i]['created_at'] != null
-            ? DateTime.fromMillisecondsSinceEpoch(maps[i]['created_at'] as int)
-            : null,
-        mediaWidth: maps[i]['media_width'] as int?,
-        mediaHeight: maps[i]['media_height'] as int?,
-      );
-    });
-
-    // Mark these as suggested so they go to the back of the queue
-    if (results.isNotEmpty) {
-      final ids = results.map((t) => t.id).toList();
-      await markAsSuggested(ids);
+    // Same as above: only the rows actually handed to the caller are marked.
+    final results = maps.map(_tweetFromRow).toList()..shuffle();
+    final served = results.take(limit).toList();
+    if (served.isNotEmpty) {
+      await markAsSuggested(served.map((t) => t.id).toList());
     }
 
-    return (results..shuffle()).take(limit).toList();
+    return served;
   }
 
   static Future<void> markAsSuggested(List<String> ids) async {
@@ -548,24 +664,7 @@ class Repository {
       limit: limit,
     );
 
-    return List.generate(maps.length, (i) {
-      return Tweet(
-        id: maps[i]['id'] as String,
-        text: maps[i]['text'] as String,
-        userHandle: maps[i]['user_handle'] as String,
-        userAvatarUrl: maps[i]['user_avatar_url'] as String?,
-        mediaKey: maps[i]['media_key'] as String?,
-        mediaUrls:
-            List<String>.from(jsonDecode(maps[i]['media_urls'] as String)),
-        thumbnailUrl: maps[i]['thumbnail_url'] as String?,
-        isVideo: (maps[i]['is_video'] as int) == 1,
-        createdAt: maps[i]['created_at'] != null
-            ? DateTime.fromMillisecondsSinceEpoch(maps[i]['created_at'] as int)
-            : null,
-        mediaWidth: maps[i]['media_width'] as int?,
-        mediaHeight: maps[i]['media_height'] as int?,
-      );
-    });
+    return maps.map(_tweetFromRow).toList();
   }
 
   static Future<List<Tweet>> getHashtagCachedMedia(String hashtag, int limit,
@@ -588,24 +687,7 @@ class Repository {
       limit: limit,
     );
 
-    return List.generate(maps.length, (i) {
-      return Tweet(
-        id: maps[i]['id'] as String,
-        text: maps[i]['text'] as String,
-        userHandle: maps[i]['user_handle'] as String,
-        userAvatarUrl: maps[i]['user_avatar_url'] as String?,
-        mediaKey: maps[i]['media_key'] as String?,
-        mediaUrls:
-            List<String>.from(jsonDecode(maps[i]['media_urls'] as String)),
-        thumbnailUrl: maps[i]['thumbnail_url'] as String?,
-        isVideo: (maps[i]['is_video'] as int) == 1,
-        createdAt: maps[i]['created_at'] != null
-            ? DateTime.fromMillisecondsSinceEpoch(maps[i]['created_at'] as int)
-            : null,
-        mediaWidth: maps[i]['media_width'] as int?,
-        mediaHeight: maps[i]['media_height'] as int?,
-      );
-    });
+    return maps.map(_tweetFromRow).toList();
   }
 
   static Future<void> markMediaAsPlayed(String id) async {
@@ -697,13 +779,19 @@ class Repository {
   static Future<void> pruneCachedMedia({int threshold = 5000}) async {
     final db = await database;
 
-    // 1. Delete by age: Remove anything older than 7 days (or missing a date)
+    // 1. Delete by age: anything older than 7 days. `created_at IS NULL` used
+    // to be deleted here as well, which (together with the date-parsing bug)
+    // wiped the entire cache table on every prune. Rows with no usable date are
+    // only ever removed by the count limit below now.
     final sevenDaysAgo =
         DateTime.now().subtract(const Duration(days: 7)).millisecondsSinceEpoch;
-    await db.delete(
-      tableCachedMedia,
-      where: 'created_at < ? OR created_at IS NULL',
-      whereArgs: [sevenDaysAgo],
+    await db.execute(
+      '''
+      DELETE FROM $tableCachedMedia
+      WHERE COALESCE(created_at, inserted_at) IS NOT NULL
+        AND COALESCE(created_at, inserted_at) < ?
+      ''',
+      [sevenDaysAgo],
     );
 
     // 2. Delete by count: If still over threshold, delete oldest watched items
@@ -717,22 +805,66 @@ class Repository {
         DELETE FROM $tableCachedMedia 
         WHERE id IN (
           SELECT id FROM $tableCachedMedia 
-          ORDER BY COALESCE(last_played_at, created_at) ASC 
+          ORDER BY COALESCE(last_played_at, created_at, inserted_at) ASC 
           LIMIT ?
         )
       ''', [deleteCount]);
     }
   }
 
-  static Future<void> purgeSeenMetadata() async {
+  static Future<void> purgeSeenMetadata({bool clearWatchedList = true}) async {
     final db = await database;
-    await db.delete(
+    // `watched_media` is what actually hides content (see [filterUnwatched]).
+    // Deleting only `played_count > 0` rows used to leave every already-seen
+    // item hidden, so the button appeared to do nothing.
+    if (clearWatchedList) {
+      await db.delete(tableWatchedMedia);
+    }
+    await db.update(
       tableCachedMedia,
-      where: 'played_count > 0',
+      {'played_count': 0, 'last_played_at': null},
     );
   }
 
+  /// Number of entries hidden as "already watched" (for the settings screen).
+  static Future<int> getWatchedCount() async {
+    final db = await database;
+    final rows =
+        await db.rawQuery('SELECT COUNT(*) AS count FROM $tableWatchedMedia');
+    return (rows.first['count'] as int?) ?? 0;
+  }
+
+  /// Closes and deletes the local database. Used by the startup error screen,
+  /// where a corrupt/half-migrated file otherwise left the app unusable.
+  static Future<void> resetLocalData() async {
+    final db = _database;
+    _database = null;
+    _opening = null;
+    if (db != null) {
+      try {
+        await db.close();
+      } catch (_) {}
+    }
+    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
+    final path = join(await getDatabasesPath(), 'xflow.db');
+    for (final suffix in ['', '-wal', '-shm', '-journal']) {
+      final file = File('$path$suffix');
+      try {
+        if (await file.exists()) await file.delete();
+      } catch (_) {}
+    }
+  }
+
   static Future<void> close() async {
+    final opening = _opening;
+    _opening = null;
+    if (opening != null) {
+      // A cached open-in-flight future would otherwise hand back the closed
+      // handle to the next caller.
+      try {
+        await opening;
+      } catch (_) {}
+    }
     if (_database != null) {
       await _database!.close();
       _database = null;

@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XPlay(xflow) 全量代码 Bug 审查报告 · 2026-09-21</title>
+<style>
+:root{
+  --bg:#0d1017; --panel:#141926; --panel2:#1b2231; --line:#26304a;
+  --tx:#e6ebf5; --tx2:#98a5c0; --hi:#ff5c5c; --mid:#ffb020; --low:#4fd1c5;
+  --ok:#69db7c; --blue:#5b9dff;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.65 -apple-system,"Segoe UI","Microsoft YaHei",Roboto,sans-serif}
+header{padding:34px 26px 22px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#141a28,#0d1017)}
+h1{margin:0 0 6px;font-size:25px;letter-spacing:.5px}
+.sub{color:var(--tx2);font-size:13.5px}
+main{max-width:1180px;margin:0 auto;padding:24px 22px 80px}
+section{margin:30px 0}
+h2{font-size:18px;margin:0 0 14px;padding-left:11px;border-left:4px solid var(--blue)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:15px 17px}
+.stat b{display:block;font-size:29px;line-height:1.2}
+.stat span{color:var(--tx2);font-size:12.5px}
+.note{background:#12202e;border:1px solid #23425e;border-left:4px solid var(--blue);border-radius:9px;padding:14px 17px;color:#cfe3f7;font-size:14px}
+.note.warn{background:#241a12;border-color:#5a3c1d;border-left-color:var(--mid);color:#f5dfbe}
+.cards{display:grid;gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.card>.top{display:flex;flex-wrap:wrap;gap:9px;align-items:center;padding:13px 16px;cursor:pointer;background:var(--panel2)}
+.card>.top h3{margin:0;font-size:15.5px;flex:1 1 340px}
+.chip{font-size:11.5px;padding:2.5px 9px;border-radius:20px;border:1px solid;white-space:nowrap}
+.s高{color:var(--hi);border-color:#5c2a2a;background:#241313}
+.s中{color:var(--mid);border-color:#5a441d;background:#241c11}
+.s低{color:var(--low);border-color:#1e4a45;background:#11201f}
+.m{color:var(--tx2);border-color:var(--line);background:#0f1420}
+.v{color:#bfe6c8;border-color:#2c5137;background:#132317}
+.v.todo{color:#e6cfa8;border-color:#57431f;background:#231b0f}
+.body{padding:6px 16px 16px;display:none}
+.card.open .body{display:block}
+.row{margin:13px 0}
+.lab{font-size:12px;color:var(--tx2);letter-spacing:.8px;margin-bottom:5px;font-weight:600}
+.impact{background:#1d1417;border-left:3px solid var(--hi);padding:10px 13px;border-radius:0 8px 8px 0}
+.after{background:#131d18;border-left:3px solid var(--ok);padding:10px 13px;border-radius:0 8px 8px 0}
+code,pre{font-family:"Cascadia Mono",Consolas,"JetBrains Mono",monospace}
+pre{background:#0b0e15;border:1px solid var(--line);border-radius:8px;padding:11px 13px;overflow:auto;font-size:12.5px;color:#c9d6ee;margin:0}
+.loc{font-size:12.5px;color:var(--blue);font-family:Consolas,monospace;word-break:break-all}
+p{margin:6px 0}
+ul,ol{margin:6px 0;padding-left:22px}
+li{margin:4px 0}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px}
+.toolbar input,.toolbar select{background:var(--panel2);border:1px solid var(--line);color:var(--tx);padding:8px 11px;border-radius:8px;font-size:13.5px}
+.toolbar input{min-width:250px;flex:1 1 250px}
+.btn{background:var(--panel2);border:1px solid var(--line);color:var(--tx2);padding:7px 13px;border-radius:8px;font-size:13px;cursor:pointer}
+.btn.on{color:#fff;border-color:var(--blue);background:#1a2740}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{border-bottom:1px solid var(--line);padding:9px 10px;text-align:left;vertical-align:top}
+th{color:var(--tx2);font-weight:600;background:var(--panel2)}
+.collapse{cursor:pointer;color:var(--blue);font-size:13px;user-select:none}
+footer{color:var(--tx2);font-size:12.5px;border-top:1px solid var(--line);padding:18px 26px}
+kbd{background:#0b0e15;border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>XPlay（xflow）全量代码 Bug 审查报告</h1>
+  <div class="sub">
+    项目 <code>G:\game\nw\xplay</code> · 版本 0.1.31+31 · Flutter / Riverpod / media_kit / sqflite<br>
+    审查范围：<b>lib\ 下 38 个 Dart 文件、11,369 行全部逐行读完</b>（含 Android 清单、MainActivity.kt、update.json、pubspec.yaml）· 报告日期 2026-09-21
+  </div>
+</header>
+
+<main>
+
+<section>
+  <div class="grid">
+    <div class="stat"><b style="color:var(--hi)" id="c-high">0</b><span>高危：用户直接可感知、或持续损耗账号配额</span></div>
+    <div class="stat"><b style="color:var(--mid)" id="c-mid">0</b><span>中危：特定操作下出错、设置项无效</span></div>
+    <div class="stat"><b style="color:var(--low)" id="c-low">0</b><span>低危 / 待真机确认</span></div>
+    <div class="stat"><b style="color:var(--ok)" id="c-total">0</b><span>条目合计（去重后）</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>一句话结论</h2>
+  <div class="note">
+    <b>最伤的一类问题不是崩，而是"本地缓存其实没在工作"+"播放器状态互相打架"。</b>
+    时间解析缺陷（#1，已实机跑通复现）让数据库里每条媒体记录的发布时间都是空的，而清理逻辑又专门删除"时间为空"的行——于是攒缓存这件事从头到尾就是白做的，App 每次都在重新打 X 的接口，于是更容易撞限流；而"账户冷却时间"这个设置是空实现（#2），限流之后没有退避，表现就是越刷越空。
+    另一条主线是播放器池被三个页面共用、又在后台线程里被互相释放（#3），加上"改任何设置都会重排首页列表"（#4）和"划过的瞬间就标记成已看"（#5），共同造成"看着看着黑屏/转圈、内容突然被换掉、想看的再也不出现"。
+  </div>
+</section>
+
+<section>
+  <h2>修复状态总览（2026-09-21 本轮已全部处理）</h2>
+  <div class="note" style="margin-bottom:14px">
+    <b>验证口径</b>：<code>flutter analyze lib test</code> → <b>0 error / 0 warning</b>（本轮前：test 目录 7 个编译错误）；
+    <code>flutter test</code> → <b>73 通过 / 1 跳过（网络探测脚本）/ 0 失败</b>（本轮前：3 个测试文件无法编译，12 个失败）；
+    <code>flutter build apk --debug --target-platform android-arm64</code> → 通过（Android 清单与安装流程已实测打进 APK）。
+    新增 <code>test/core/utils/date_utils_test.dart</code>（8 例）与 <code>test/core/database/repository_cache_test.dart</code>（9 例）专门锁住"时间解析 / 缓存清理 / upsert / 订阅去重 / 已看名单"这几条最容易被改回去的行为。
+  </div>
+  <table>
+    <tr><th>#</th><th>问题</th><th>状态</th><th>改在哪里 / 怎么验</th></tr>
+    <tr><td>1</td><td>时间解析全灭</td><td>✅ 已修 + 自动化验证</td><td><code>date_utils.dart</code> 改为无依赖正则解析（含 ±HHMM 偏移）；8 条单测</td></tr>
+    <tr><td>2</td><td>429 冷却是空的</td><td>✅ 已修（真机观察）</td><td><code>twitter_client.dart</code> 端点冷却表 <code>_cooldownUntil</code>；各入口先短路；首页显示"约 N 分钟后自动恢复"</td></tr>
+    <tr><td>3</td><td>播放器池互踩</td><td>✅ 已修（真机观察）</td><td><code>player_pool_provider.dart</code> 按 scope 记 owners，只有最后一个使用者释放才 dispose；三个页面各用独立 scope</td></tr>
+    <tr><td>4</td><td>改设置清空首页</td><td>✅ 已修</td><td>provider 改 <code>select(fetchSnapshot)</code>；刷新只重排锚点之后；页面按 tweet.id 重锚</td></tr>
+    <tr><td>5</td><td>划过即标已看</td><td>✅ 已修</td><td>停稳 450ms 且仍是同一页/同一条才写 watched（首页与话题流）</td></tr>
+    <tr><td>6</td><td>切后台还在放</td><td>✅ 已修</td><td><code>lifecycleProvider</code> 参与可见性判定，播放/暂停统一走 <code>_syncPlayback</code></td></tr>
+    <tr><td>7</td><td>全屏强制横屏</td><td>✅ 已修</td><td><code>Video.onEnterFullscreen</code> 自己实现（按宽高比设方向 + immersive）</td></tr>
+    <tr><td>8</td><td>prune 删空时间行</td><td>✅ 已修 + 单测</td><td>改为 <code>COALESCE(created_at, inserted_at) &lt; ?</code>，两者都空的遗留行不删</td></tr>
+    <tr><td>9</td><td>点赞不记住</td><td>✅ 已修 + 单测</td><td>schema v13 加 <code>is_liked/favorite_count/reply_count</code>；读取映射；<code>toggleLike</code> 成功才落库</td></tr>
+    <tr><td>10</td><td>请求锁重复释放</td><td>✅ 已修</td><td>换成链式闸门 <code>_gated()</code>，9 处调用点统一；切前台不再把排队请求全部判错</td></tr>
+    <tr><td>11</td><td>重启用回旧账号</td><td>✅ 已修</td><td>账号主键改 restId + <code>replaceAccount()</code> 事务替换 + <code>getAccounts</code> 按 rowid DESC</td></tr>
+    <tr><td>12</td><td>订阅表长重复行</td><td>✅ 已修 + 单测</td><td>update 不再写主键；迁移 v13 先按 handle 去重再建 <code>UNIQUE(LOWER(screen_name))</code></td></tr>
+    <tr><td>13</td><td>query id 固化</td><td>✅ 已修</td><td>只持久化"线上捕获/远端下发"的 id 并带时间戳，14 天过期后回退内置值；旧格式落盘数据自动丢弃</td></tr>
+    <tr><td>14</td><td>订阅流偷换推荐</td><td>✅ 已修</td><td>只有 <code>allPathsFailed</code> 且未勾"只要订阅"时才降级，并标注来源、不复用旧游标</td></tr>
+    <tr><td>15</td><td>话题流不认过滤</td><td>✅ 已修</td><td>查询串按所选类型生成 + 传 <code>filters</code>；分页同样带上</td></tr>
+    <tr><td>16</td><td>点屏不能暂停 / 长期"播放失败"</td><td>✅ 已修</td><td>手势改 <code>Positioned.fill</code> 承载；play/pause 移出 build 且只在状态不一致时下发；<code>_retryCount</code> 成功后复位、错误面板可清除并加重试按钮</td></tr>
+    <tr><td>17</td><td>首页卡片无 key</td><td>✅ 已修 + 单测</td><td><code>ValueKey('home_feed_&lt;id&gt;')</code>；组件状态在换条时复位</td></tr>
+    <tr><td>18</td><td>翻页到底仍重打 / 话题页码残留</td><td>✅ 已修</td><td><code>FeedState.hasMore</code> + <code>copyWith(clearCursor:)</code>；话题页切换时重置页码并释放旧 scope</td></tr>
+    <tr><td>19</td><td>清缓存无反馈 / 拖滑条误删</td><td>✅ 已修</td><td>存储页自己拉统计并弹结果；<code>onChanged</code> 只存值、<code>onChangeEnd</code> 才收缩；打开设置不再删文件</td></tr>
+    <tr><td>20</td><td>"清除已看元数据"无效</td><td>✅ 已修 + 单测</td><td>改为清空 <code>watched_media</code>（真正依据）+ 二次确认 + 报数</td></tr>
+    <tr><td>21</td><td>更新误报"已是最新"</td><td>✅ 已修</td><td><code>checkDetailed()</code> 区分网络失败/无更新/有更新；遮罩用 finally 关闭；比较纳入 build 号；兜底 tag 两种都试</td></tr>
+    <tr><td>22</td><td>首启默认值不一致</td><td>✅ 已修</td><td>新增 <code>SettingsDefaults</code> 单一来源；未初始化前不查库；<code>_prefs</code> 惰性获取，写入走 <code>_save()</code>（不再 LateInitializationError）</td></tr>
+    <tr><td>23</td><td>缓存口径不全</td><td>✅ 已修</td><td>统计/清理覆盖默认图片管理器与 ffcache 目录；对象上限 200→2000；收缩只动自己的目录，删除失败计数上报</td></tr>
+    <tr><td>24</td><td>超时设置无效 / txId 不冷却</td><td>✅ 已修</td><td><code>fetch(timeout:)</code> 由调用方传入；生成器非 200 / 空响应也进 60 秒冷却</td></tr>
+    <tr><td>25</td><td>同一条出现两次</td><td>✅ 已修</td><td>翻页循环内实时去重（含 API 各页之间），候选只标记真正返回的那批</td></tr>
+    <tr><td>26</td><td>DB 重复打开 / 退出不清净</td><td>✅ 已修</td><td>single-flight 打开、<code>close()</code> 同时清在途句柄；缓存 key 绑定账号；logout 删除本次会话缓存</td></tr>
+    <tr><td>27</td><td>返回丢掉话题流</td><td>✅ 已修</td><td><code>originHashtag</code> 记录来源，<code>back()</code> 复原</td></tr>
+    <tr><td>28</td><td>点第 N 条进全屏却是另一条</td><td>✅ 已修</td><td>只有命中目标 id 才定稿页码；之后列表变动按 id 重锚</td></tr>
+    <tr><td>29</td><td>登录判空顺序 / 身份可能取错</td><td>✅ 已修（真机观察）</td><td>先解 JSON 包裹再判空；优先 <code>verify_credentials</code> 拿本人，页面正则降为兜底</td></tr>
+    <tr><td>30</td><td>导入流泄漏 / 列表不刷新</td><td>✅ 已修</td><td>controller 统一在 finally 关闭、重试前释放；清空与退出登录同时 invalidate 订阅列表；await 后判 mounted</td></tr>
+    <tr><td>31</td><td>初始化失败纯黑屏</td><td>✅ 已修</td><td>启动失败改为可读错误页 + "清除本地数据并退出"（新增 <code>Repository.resetLocalData()</code>）</td></tr>
+    <tr><td>32</td><td>日志页不刷新</td><td>✅ 已修</td><td>2 秒轮询刷新、清空前二次确认、标题显示条数</td></tr>
+    <tr><td>33</td><td>坏行永不修复</td><td>✅ 已修 + 单测</td><td><code>ON CONFLICT DO UPDATE</code>：内容取新、统计不动、点赞只朝"已喜欢"合并</td></tr>
+    <tr><td>34</td><td>实体写映射缺列</td><td>✅ 已修 + 单测</td><td><code>toMap()</code> 补 <code>profile_synced_at</code>，删掉重复的第二套写映射</td></tr>
+    <tr><td>35</td><td>/graphql/null 路径</td><td>✅ 已修</td><td>缺 id 直接抛 <code>StateError</code>，不再发出必然 404 的请求</td></tr>
+    <tr><td>36</td><td>图片全尺寸解码 / 全局明文 / 找不到安装器</td><td>✅ 已修（安装流程待真机）</td><td>仅按显示宽度降采样（不设高度，避免重蹈变形）；明文改为只对 txId 域名放行；<code>&lt;queries&gt;</code> 补 intent + <code>ActivityNotFoundException</code> 回落与提示</td></tr>
+    <tr><td>37</td><td>测试套件不可编译</td><td>✅ 已修</td><td>9 处替身签名同步、3 个文件补齐依赖；顺带修掉 5 个历史遗留失败断言（英文 UI 文案、setUp 自相矛盾、webview 平台未注册）</td></tr>
+    <tr><td>38</td><td>跨 await 用 context</td><td>✅ 已修</td><td>分享前缓存 messenger，用 State 的 <code>mounted</code> 守卫</td></tr>
+    <tr><td>39</td><td>静态分析被本地 SDK 淹没 / APK 入库</td><td>🟡 部分</td><td>已在 <code>analysis_options.yaml</code> 排除 <code>flutter_sdk/**</code>（744 秒 25510 条 → 2 秒 20 条）。<b>需要你执行</b>：<code>git rm --cached xflow_v0.31_filter_fix.apk</code> 并在 .gitignore 补 <code>*.apk</code>（涉及版本库历史，我没代做）</td></tr>
+  </table>
+  <p style="color:var(--tx2);font-size:13.5px;margin-top:10px">本轮修的过程中另外发现并一并修掉的问题：关注列表"在途请求"去重只按单一槽位（不同账号会串号）、设置每次变化都 <code>new TwitterClient()</code>（丢掉客户端状态）、Riverpod 3 下 provider 读自身与在 <code>dispose()</code> 里用 <code>ref</code>（会让页面卸载时抛断言）、以及 WebView 平台实现缺失时整页崩溃（现降级为"仅抓取功能不可用"）。</p>
+</section>
+
+<section>
+  <h2>审查方法（结论怎么来的）</h2>
+  <div class="note warn">
+    <ul>
+      <li><b>全量阅读</b>：lib\ 全部 38 个文件逐行读完，未用抽样代替；Android 清单、MainActivity.kt、pubspec、update.json 一并核对。</li>
+      <li><b>实机验证</b>：#1 时间解析用项目自带的 Dart + 项目锁定的 intl 0.20.2 真跑了一遍，输入 <code>Mon Aug 25 14:03:22 +0000 2025</code> 输出 <code>null</code>，并验证了可用改法。</li>
+      <li><b>依赖源码核对</b>：#7 全屏强制横屏，读了本机 <code>media_kit_video-2.0.1</code> 源码确认默认行为（<code>onEnterFullscreen = defaultEnterNativeFullscreen</code>，其中写死 landscapeLeft/Right，且在应用设置方向之后执行）。</li>
+      <li><b>排掉的假警报</b>：<code>FFCache</code> 未显式 init（包内部会自动初始化，不是 bug）；<code>DateFormat(..., "en_US")</code> 缺 locale 初始化（en_US 是内置兜底，可用）；版本号字典序比较（实为逐段整数比较，正确）；<code>MainActivity.kt</code> 包名与目录不一致（Kotlin 不要求一致，不会 ClassNotFound）；<code>WAKE_LOCK</code> 权限"多余"（media_kit 的 wakelock 在用）。以上均<b>不计入</b> bug。</li>
+      <li><b>静态分析</b>：<code>flutter analyze</code> 已跑完（744 秒，25,510 条）。约 99% 来自被整个提交进仓库的 <code>flutter_sdk\</code> 目录本身（见 #39）；<strong>项目自身 lib\ 只有 1 条真实告警</strong>（见 #38），<code>test\</code> 下有 <strong>7 条编译错误</strong>（见 #37）。<code>flutter test</code> 本次未执行，标 <span class="chip v todo">待真机确认</span> 的条目需要真机日志或安装流程才能定论。</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>Bug 明细</h2>
+  <div class="toolbar">
+    <input id="q" type="search" placeholder="搜索标题 / 文件 / 影响，例如 prune、429、全屏">
+    <button class="btn on" data-sev="all">全部</button>
+    <button class="btn" data-sev="高">仅高危</button>
+    <button class="btn" data-sev="中">仅中危</button>
+    <button class="btn" data-sev="低">仅低危</button>
+    <select id="mod"><option value="all">全部模块</option></select>
+    <button class="btn" id="expand">全部展开</button>
+    <button class="btn" id="collapse">全部收起</button>
+  </div>
+  <div class="cards" id="list"></div>
+</section>
+
+<section>
+  <h2>建议修复顺序</h2>
+  <table>
+    <tr><th>批次</th><th>做什么</th><th>为什么先做它</th><th>完成后能感觉到</th></tr>
+    <tr><td><b>第 0 批<br>（先把眼睛打开）</b></td><td>#37 修好 3 个编译不过的测试文件 + CI 加 analyze/test 闸门；#39 把本地 SDK 挪出工程根</td><td>现在测试与静态分析都不可用，任何修改都没有回压，改完只能靠手点</td><td>分析几十秒出结果；改坏接口时编译期就报错，不用等用户反馈</td></tr>
+    <tr><td><b>第 1 批<br>（缓存地基）</b></td><td>#1 时间解析 + #8 清理误删空时间 + #2 真正的 429 冷却</td><td>这三条决定了"缓存到底有没有用"，其他优化都建立在缓存之上</td><td>冷启动秒开出以前看过的内容；移动网络流量下降；不再"越刷越空"</td></tr>
+    <tr><td><b>第 2 批<br>（播放器）</b></td><td>#3 播放器池按页面隔离/引用计数 + #4 刷新时保护当前项与页码 + #5 滑稳后再标记已看 + #6 后台暂停</td><td>全是"看着看着出问题"的直接来源，且集中在同一条链路</td><td>切后台不响、不会突然黑屏转圈、正在看的那条不会自己变走</td></tr>
+    <tr><td><b>第 3 批<br>（账号）</b></td><td>#11 登录态/账号表 + #12 订阅主键被改写 + #13 query id 持久化策略</td><td>不修的话每次重装/重登都要重来一遍，且会混进陌生人数据</td><td>重登后重启还是本人；订阅列表不再重复；升级 App 能真正修好 404</td></tr>
+    <tr><td><b>第 4 批<br>（设置与反馈）</b></td><td>#15~#22 无效设置项、清缓存无反馈、更新误报、日志页不刷新</td><td>这些不会崩，但会让用户以为 App 坏了并向你反馈"没反应"</td><td>每个开关/滑块都确实起作用，操作后有明确提示</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>覆盖范围与已知局限</h2>
+  <div class="note">
+    <p>已逐行读完：<code>lib\**\*.dart</code>（38 个文件全部）、<code>android/app/src/main/AndroidManifest.xml</code>、<code>MainActivity.kt</code>、<code>pubspec.yaml</code>、<code>update.json</code>、<code>.gitignore</code> 与 <code>.github/workflows/release.yml</code>；并定点阅读了本机 pub 缓存中的 <code>intl-0.20.2</code>、<code>media_kit_video-2.0.1</code>、<code>webview_flutter_android-4.14.0</code>、<code>ffcache-1.1.0</code> 相关实现来验证跨库行为；<code>flutter analyze</code> 已完整跑过一遍（结论见 #37、#38、#39）。</p>
+    <p>未做（如果你要我可以继续）：① 没跑真机/模拟器，所以凡是"取决于 X 线上返回结构或 Android 版本"的条目都标了 <span class="chip v todo">待真机确认</span>；② <code>docs\</code> 与 <code>scripts\benchmark_discovery.py</code> 只做了一致性参考，不作为 bug 依据。</p>
+    <p><b>修复轮补充</b>：上述"没执行 flutter test"已解除——测试套件修好后完整跑过（73 通过 / 1 跳过），静态分析与 <code>flutter build apk --debug</code> 也都通过。仍然缺的只有真机验证：限流冷却的实际效果、全屏方向、切后台静音、更新安装流程，这四项需要你在设备上过一遍。</p>
+    <p>另外提醒一句：本报告里的行号对应<b>当前工作区（v0.1.31 那次提交之后）的代码</b>，改完请重新定位。</p>
+  </div>
+</section>
+
+</main>
+
+<footer>XPlay 代码审查报告 · 由 Qoder 生成 · 2026-09-21 · 单文件离线可看，无外部依赖</footer>
+
+<script>
+const BUGS = [
+{
+  sev:'高', mod:'缓存与数据层', verified:'已实测',
+  title:'1. 所有推文的发布时间都解析失败 → 本地缓存攒不住，每次冷启动都重新打接口',
+  loc:'lib/core/utils/date_utils.dart:7-8 ｜ lib/core/client/twitter_client.dart:1713-1731 ｜ lib/core/database/repository.dart:381, 703-707 ｜ lib/core/client/background_sync.dart:76-79',
+  code:'final format = DateFormat("EEE MMM dd HH:mm:ss Z yyyy", "en_US");\nreturn format.parse(dateStr);\n// twitter_client.dart:1728-1731 一旦为空就只留一行日志\nif (createdAt == null) {\n  AppLogger.log(\'XFLOW: No date found in legacy: ...\');\n}',
+  why:'intl 的解析器里 <code>Z</code> 这个字段<strong>不消费任何输入字符</strong>（intl-0.20.2 <code>date_format_field.dart:341-342</code> 就是 <code>case \'Z\': break;</code>），于是紧跟其后的那个空格被当成字面量去匹配 <code>+0000</code>，直接抛 FormatException → 走 catch 分支的 <code>DateTime.tryParse</code>，而 Twitter 的格式不是 ISO8601，tryParse 也返回 null。<strong>我用项目自带 Dart 跑过：两条标准 Twitter 时间串全部返回 null。</strong>连锁反应有三段：① 入库存成 <code>created_at = NULL</code>；② <code>pruneCachedMedia</code> 的删除条件是 <code>created_at &lt; ? OR created_at IS NULL</code>，启动 1 分钟后就被 background_sync 调用一次 → 整张 cached_media 被清空；③ 所有按时间排序的地方（<code>ORDER BY created_at DESC</code>、prune 的 <code>COALESCE</code>）全部失去依据。',
+  impact:'① 卡片上的发布时间永远不显示；② 你以为在攒本地缓存，实际每天清一次，App 每次启动/刷新都在重新请求 X 的接口 → 更耗流量、更容易触发 429、断网/慢网时信息流直接空白；③ 缓存池空 → "发现/混排/去重"这些算法基本没数据可用，首页显得内容少且重复；④ 设置页的"数据库记录上限"形同虚设。',
+  after:'createdAt 拿到正确的绝对时刻；<code>created_at</code> 正常入库，prune 只删 7 天前那批，缓存真正累积起来 → 冷启动先出本地内容再补新的，流量与 429 明显下降，时间显示与排序恢复。',
+  fix:'最小改法（已实测可用）：<code>DateFormat("EEE MMM dd HH:mm:ss yyyy", "en_US").parse(s.replaceFirst(RegExp(r"\\s[+-]\\d{4}\\s"), " "), true)</code> → 输出 <code>2025-08-25 14:03:22.000Z</code>。严格一点还应把 <code>±HHMM</code> 偏移换算进去（X 实际基本都返回 +0000）。同时建议把 prune 的条件改成 <code>created_at IS NOT NULL AND created_at &lt; ?</code>，别让"解析失败"变成"删除理由"。',
+  verify:'验证方式：真机日志里搜 <code>No date found in legacy</code>，或临时打印 cached_media 的 <code>created_at</code> 是否全 NULL。'
+},
+{
+  sev:'高', mod:'网络与鉴权', verified:'代码确认',
+  title:'2. "账户冷却时间"是空实现：429 之后没有退避，继续硬打',
+  loc:'lib/core/client/twitter_client.dart:67-69（定义）｜ 613-615, 815-818, 1086-1089（调用）｜ lib/features/settings/settings_screen.dart:614-621（设置项）',
+  code:'static void _handleRateLimit(int minutes) {\n  AppLogger.log(\'429 Rate Limit Exceeded on this endpoint. Skipping.\');\n}',
+  why:'<code>minutes</code> 参数完全没被使用，项目里也不存在任何"某端点冷却到几点"的状态。设置项 <code>cooldownDuration</code> 从 SharedPreferences 一路传到 <code>fetchSubscribedMedia / fetchFollowing / fetchUserTimeline / background_sync</code> 共 15 处，最后只是被丢弃。另外 429 时函数返回 <code>TweetResponse(tweets: [])</code>，与"今天真的没有新内容"在 UI 上不可区分。',
+  impact:'触发一次限流后，下一次刷新（下拉、翻页、后台定时同步）立刻又打同一个端点 → 限流期一直续命。用户看到的就是"越刷越空""刷新半天没反应""提示未找到媒体内容"，而且完全不知道该等一等。',
+  after:'记录"端点 + 冷却到期时间"，冷却期内直接跳过请求并把原因显示出来（例如顶部条"账号访问过于频繁，xx:xx 后自动重试"），到点自动恢复；设置页那个数字真的作用于冷却时长。',
+  fix:'加一个 <code>static final Map&lt;String, DateTime&gt; _cooldownUntil</code>，在 <code>_handleRateLimit</code> 里写入 <code>now + Duration(minutes: minutes)</code>，各 fetch 入口先查表短路；同时把"因限流而空"和"没内容"区分成一个状态返回给 feed。',
+  verify:''
+},
+{
+  sev:'高', mod:'播放器', verified:'代码确认',
+  title:'3. 三个页面共用一个播放器池，会互相把正在播的实例释放掉 → 突然黑屏/永久转圈',
+  loc:'lib/features/player/player_pool_provider.dart:84-87（全局非 autoDispose）｜ lib/features/feed/tiktok_feed_screen.dart:98 ｜ lib/features/feed/hashtag_feed_screen.dart:215 ｜ lib/features/profile/user_media_feed_screen.dart:103 ｜ lib/main.dart:113-120, 139-143 ｜ lib/features/player/widgets/media_container.dart:240-243',
+  code:'// 三处都是这个写法，各自只传自己窗口内的 5 个 id\npool.cleanupExcept(activeIds);\n\n// player_pool_provider.dart:71-81\nfor (final entry in state.entries) {\n  if (activeIds.contains(entry.key)) { ... } else { entry.value.dispose(); }\n}',
+  why:'<code>playerPoolProvider</code> 是<strong>一个全局共享池</strong>，但主信息流、话题流、用户媒体流各自按"我这一页的 5 条"来 <code>cleanupExcept</code>。同时主信息流被 <code>IndexedStack</code> + <code>Visibility(maintainState:true)</code> 常驻，它在 <code>build()</code> 里挂了 <code>Future.microtask(_managePool)</code>（tiktok_feed_screen.dart:172-174），只要首页状态一变就会跑一次回收。而话题流里的点赞按钮走的是<strong>首页</strong> provider（tweet_text_overlay.dart:90 → feed_provider.dart:488）——于是在话题页点个心，首页重建 → 首页回收池子 → 话题页正在播的 Player 被 <code>dispose()</code>；话题页容器只认池子里的实例，取不到就只剩一个转圈，页面内没有任何重新 warmup 的路径。',
+  impact:'在话题流/用户全屏流里看视频，会突然画面停住、声音断了或一直转圈，只能划到下一条再划回来。切 tab、点赞、后台同步回来时最容易复现。',
+  after:'每个页面用自己独立的池（或给实例加引用计数/“谁在用就不回收”），任何页面回收都不会动到当前可见实例；万一被回收，页面能自动重建播放器而不是停在转圈。',
+  fix:'把 provider 改成 <code>family</code>（按页面/scope 一个池），或 <code>cleanupExcept</code> 取"所有存活页面的并集"；同时 media_container 在 <code>instance == null</code> 时主动触发一次 warmup 而不是只画进度圈。',
+  verify:''
+},
+{
+  sev:'高', mod:'信息流与推荐', verified:'代码确认',
+  title:'4. 改任何设置都会清空重建首页列表，正在看的那条被换掉',
+  loc:'lib/features/feed/feed_provider.dart:121-122（build 里 watch 设置）｜ 262-275（protectedIndex 只保 2 条）｜ lib/features/feed/tiktok_feed_screen.dart:25, 183（页码不参与保护）｜ lib/features/profile/profile_provider.dart:27-28 同问题',
+  code:'final settings = ref.watch(settingsProvider);   // 任意设置变化 → 整个 feed 重建\n...\nfinal processed = _runDiscoveryPipeline(\n  freshTagged, localTagged, settings, playedByUser,\n  protectedIndex: resetHead ? 0 : 2,          // 只保护前 2 条\n  currentTweets: resetHead ? [] : current.tweets);',
+  why:'两条路径都有问题。<strong>(a)</strong> <code>build()</code> 用 <code>ref.watch(settingsProvider)</code>，所以"缓存上限、后台刷新频率、日志开关、重试次数"任何一项被改（滑条每滑一档就是一次）都会重跑 build → 状态被换成"只有本地候选的第一页"，游标也归 null。<strong>(b)</strong> 后台刷新完成时只保护列表<strong>前 2 条</strong>，而用户的页码 <code>_currentIndex</code> 不参与保护、也不做重映射；混排/饱和度算法会把 index≥2 的内容整个重排。',
+  impact:'① 进设置页调个滑块再回来，首页列表缩回第一屏、之前翻出来的几十条全没了、正在看的视频跳回开头；② 什么都不做只是后台同步完成，你正在看的第 6 条会突然变成另一条视频（画面/声音原地互换），并且新顶上来的那条被当成"你看过的"。',
+  after:'① 只有影响"取数"的设置（内容类型过滤、是否避开已看）才触发重建，其余改完不打断当前列表；② 刷新时以"当前正在播的 tweet.id"为锚点重排，页码跟随到同一条内容，用户完全无感。',
+  fix:'build 内改用 <code>ref.read</code>，并对具体字段做显式 <code>ref.listen</code>；<code>_runDiscoveryPipeline</code> 把 <code>protectedIndex</code> 换成"当前页 id 及其之前的全部"，重建后用 <code>indexWhere(id)</code> 把 PageController 跳回同一条。',
+  verify:''
+},
+{
+  sev:'高', mod:'信息流与推荐', verified:'代码确认',
+  title:'5. 快速连滑会把没看过的内容标记成"已看"，之后再也不出现',
+  loc:'lib/features/feed/tiktok_feed_screen.dart:41-58 ｜ lib/core/database/repository.dart:622-633 ｜ lib/features/feed/hashtag_feed_screen.dart:178-182',
+  code:'final page = _pageController.page?.round() ?? 0;   // 划过半屏就换 index\nif (page != _currentIndex) {\n  setState(() { _currentIndex = page; });\n  ...\n  Repository.markMediaAsPlayed(t.id);\n  Repository.markWatched(t.id, mediaKey: t.mediaKey);\n}',
+  why:'标记"已看"挂在<strong>滚动过程中的每一次取整变化</strong>上，而不是"停稳在这一页"之后。一次甩动跨 3 页就会连着写 3 条 watched 记录；配合 <code>avoidWatchedContent</code>（默认开）与 <code>filterUnwatched</code>，这些条目以及同一 <code>media_key</code> 的其他推文会被永久排除。同时因为 #4 的列表原地重排，<code>tweets[page]</code> 可能已经不是用户看到的那一条，等于给一条没见过的内容盖了章。',
+  impact:'刷得越快丢得越多：随便一滑就有十几条内容"再也没出现过"，用户只觉得内容越来越少、老刷到同一批；调试面板里的"已看 N 次"也跟着虚高，推荐权重被带偏。',
+  after:'只有真正停留观看（例如页码停稳 &gt; 300ms 或该条开始播放）才记录已看；被误标的记录可以通过"清除已看记录"找回（见 #18，目前那按钮也做不到）。',
+  fix:'把标记逻辑移到 <code>PageView.onPageEnded</code> / 或加 <code>Timer</code> 去抖（页码稳定 400ms 后才写库），并且写入前用"当前实际展示的 tweet.id"复核。',
+  verify:''
+},
+{
+  sev:'高', mod:'播放器', verified:'代码确认',
+  title:'6. 退到桌面/切到别的 App，视频还在放声音',
+  loc:'lib/core/utils/lifecycle_provider.dart:12-41 ｜ lib/main.dart:43-50（唯一消费者）｜ lib/features/player/widgets/media_container.dart:251-258（只按 isVisible 暂停）',
+  code:'// main.dart 里 lifecycleProvider 唯一用途：\nif (next == AppLifecycle.resumed) {\n  TwitterClient.resetQueue();\n  BackgroundSync.updateSettings(...);\n}\n// media_container 只在"不是当前页"时暂停：\n} else {\n  _savePosition(instance);\n  instance.player.pause();\n}',
+  why:'<code>LifecycleNotifier</code> 已经把 paused/inactive/hidden 状态发出来了，但<strong>全项目没有任何一处据此暂停播放器</strong>（grep <code>lifecycleProvider</code> 只有 main.dart:43）。切到后台不会改变页码，所以 <code>isVisible</code> 仍为 true，<code>build</code> 也拿不到 <code>autoplay=false</code> 的分支，media_kit 在 Android 上会继续出声。',
+  impact:'微信来消息、切出去回个话、锁屏，声音照放。用户会觉得"这 App 关不掉/在偷跑"，也很费电。',
+  after:'App 进入 paused/hidden/inactive 时暂停全部池内播放器并释放 wakelock，回到前台后从断点继续（现在已经有续播位置逻辑，能接得上）。',
+  fix:'在 main.dart 的 listen 回调里遍历 <code>playerPoolProvider</code> 全部实例执行 <code>player.pause()</code>（并记住"是我暂停的"，回前台再放开），或给 TiktokMediaContainer 传入 <code>isAppActive</code> 参与 <code>isVisible</code> 计算。',
+  verify:''
+},
+{
+  sev:'高', mod:'播放器', verified:'依赖源码核对',
+  title:'7. 竖屏视频点全屏被强行横过来（代码里那段判断白写了）',
+  loc:'lib/features/player/widgets/media_container.dart:296-325, 432-468 ｜ media_kit_video-2.0.1: lib/src/video/video_texture.dart:135, 479-495 ｜ lib/src/controls/methods/fullscreen.dart:80',
+  code:'final isLandscape = aspectRatio &gt; 1.0;\nif (isLandscape) { ...landscapeLeft, landscapeRight... } else {\n  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);\n}\nawait state.enterFullscreen();   // Video 没传 onEnterFullscreen',
+  why:'<code>Video</code> 的 <code>onEnterFullscreen</code> 默认值就是 <code>defaultEnterNativeFullscreen</code>，它内部写死 <code>setPreferredOrientations([landscapeLeft, landscapeRight])</code>；而 <code>fullscreen.dart:80</code> 是<strong>先推 fullscreen 路由、再 <code>await onEnterFullscreen()</code></strong>，所以应用自己刚设的 portraitUp 被后执行的默认实现覆盖。应用只传了 <code>onExitFullscreen</code>，恰好漏掉进入这一个。另外宽高还没探到时 <code>aspectRatio</code> 兜底成 <code>0.0</code>，判定为竖屏（这条本身合理）。',
+  impact:'竖屏拍的短视频点全屏，手机强制横躺，画面变成中间一条小竖带，两侧大黑边；必须把手机竖回来或退出全屏才正常。横向视频不受影响。',
+  after:'竖屏视频全屏仍是竖屏、横屏视频全屏才是横屏；进入全屏不再有多余的"先竖后横"抖动。',
+  fix:'显式传入 <code>onEnterFullscreen</code>：自己按 <code>isLandscape</code> 设置方向 + <code>setEnabledSystemUIMode(immersiveSticky)</code>，不要再依赖库默认。',
+  verify:''
+},
+{
+  sev:'高', mod:'缓存与数据层', verified:'代码确认',
+  title:'8. 缓存清理把"时间没解析出来"当成垃圾删（与 #1 叠加，等于天天清空缓存）',
+  loc:'lib/core/database/repository.dart:697-725 ｜ lib/core/client/twitter_client.dart:1713-1731',
+  code:'await db.delete(tableCachedMedia,\n  where: \'created_at &lt; ? OR created_at IS NULL\',\n  whereArgs: [sevenDaysAgo]);',
+  why:'<code>created_at IS NULL</code> 不该是删除条件：它可能只是上游某个字段没给（比如某类 note_tweet、转发结构变化），而不是真的没价值。当前项目里它又是 100% 命中（#1），所以这条 SQL 每次执行都清空整表。而且 <code>pruneCachedMedia</code> 的返回值/影响行数不记录，日志里看不出"删了多少"。',
+  impact:'本地发现池长期接近空 → 只能依赖实时接口；用户侧表现为"关掉 App 再打开又变成完全不同的内容""离线什么都看不到"。',
+  after:'只删真正过期的行；解析失败的内容保留并用 <code>last_played_at / 入库时间</code>兜底排序，缓存条数在设置页里能对上。',
+  fix:'条件改为 <code>created_at IS NOT NULL AND created_at &lt; ?</code>；另外建议给 cached_media 加一个 <code>inserted_at</code> 列作为排序与清理的兜底。',
+  verify:''
+},
+{
+  sev:'高', mod:'信息流与推荐', verified:'代码确认',
+  title:'9. 缓存内容里没有点赞状态：点赞数恒显示 0，红心也不记住',
+  loc:'lib/core/database/repository.dart:68-85（表结构无该列）｜ 418-435, 467-484, 551-568（读取时不传）｜ lib/core/models/tweet.dart:105（默认 false）｜ lib/features/feed/feed_provider.dart:469-513',
+  code:'return Tweet(\n  id: maps[i][\'id\'] as String,\n  ...\n  mediaHeight: maps[i][\'media_height\'] as int?,\n);   // isLiked / favoriteCount / replyCount 全部走默认值',
+  why:'cached_media 表没有 <code>is_liked / favorite_count / reply_count</code> 列，所有从库里重建 Tweet 的地方都让这三个字段回落成 <code>false / 0 / 0</code>。而首页里"来源=Cache"的条目占大头（#1 让缓存更空，反而更依赖 API 那几条）。<code>toggleLike</code> 是乐观更新内存状态，也不落库。',
+  impact:'同一条内容，第一次从 API 出来显示"1.2万"赞、点过有红心；下次从缓存出来变成"0"赞、空心；点一下会向 X 发一次"喜欢"，再点一次发"取消喜欢"（可能取消掉你在 X 网页上早就点过的心）。数字跳动、点赞状态不可信。',
+  after:'点赞状态与计数随内容缓存，重进不丢；对外真实已喜欢的内容显示为已喜欢，不会出现"点一下反而取消"的误操作。',
+  fix:'给 cached_media 增加三列（迁移到 version 13），读时映射、写时更新；<code>toggleLike</code> 成功后同步写库。',
+  verify:''
+},
+{
+  sev:'中', mod:'网络与鉴权', verified:'代码确认',
+  title:'10. 请求串行锁会被重复释放，限流保护形同虚设',
+  loc:'lib/core/client/twitter_client.dart:35-53, 1077-1084, 1128-1131 ｜ 1158-1174 ｜ 1242-1270 ｜ lib/main.dart:43-49',
+  code:'await _waitForTurn();\ntry { response = await TwitterAccount.fetch(uri)...; } finally { _releaseTurn(); }\n...\n} catch (e) {\n  _releaseTurn();          // 又释放一次\n  AppLogger.log(\'Error fetching user timeline: $e\');\n}',
+  why:'<code>fetchUserTimeline</code> 里内层 finally 已经释放过，外层 catch 又释放一次：<code>json.decode</code>、解析、<code>_logTimelineResult</code> 都在两层之间抛的话，就会"多放一个人进来"，于是同一时刻有两个请求并行，且 <code>_isRequestInProgress</code> 可能被置回 false 让后面的人插队 —— 全局串行（避免 429）不再成立。<code>favoriteTweet/unfavoriteTweet/fetchTweetDetail</code> 则是反过来：如果 <code>_waitForTurn()</code> 本身被 <code>resetQueue()</code> 打断抛错，finally 仍会释放一个没拿到的名额。而 <code>resetQueue()</code> 每次回到前台都会调用，它把所有排队中的请求用 <strong>error</strong> 结束（twitter_client.dart:55-65），上层 catch 后一律返回空列表。',
+  impact:'① 并发失控 → 更容易被 X 限流；② 从其他 App 切回来时，正在加载的信息流/点赞会莫名失败一次，表现为"回来看首页空了一下"。',
+  after:'同一时刻只可能有一个在途请求；切前后台不会让在途请求批量失败（改为"取消/忽略"而不是抛错），点赞结果稳定。',
+  fix:'统一成"获取锁 → 内层 try/finally 释放 → 外层 catch 不再释放"，并把 <code>_waitForTurn</code> 移到内层 try 之外；<code>resetQueue</code> 提供 <code>cancel</code> 语义（返回空响应而不是 completeError）。',
+  verify:''
+},
+{
+  sev:'中', mod:'账号与订阅', verified:'代码确认',
+  title:'11. 重新登录后，重启 App 会用回最老的那个账号',
+  loc:'lib/features/auth/login_screen.dart:124-131 ｜ lib/core/database/repository.dart:204-219 ｜ lib/core/client/twitter_account.dart:26-31',
+  code:'final account = Account(id: ct0Cookie.value, ...);   // 主键是 ct0，每次登录都变\n...\nstatic Future<List<Account>> getAccounts() async {\n  final maps = await db.query(tableAccounts);          // 没有 orderBy\n  ...\n}\n_currentAccount = accounts.first;                      // 拿到最老的一行',
+  why:'账号主键用了会轮换的 <code>ct0</code>，所以每次重新登录都是"新增一行"而不是覆盖；<code>init()</code> 又取无排序查询的第一行（sqflite/SQLite 对无 ORDER BY 的表查询实际按 rowid 返回，即最早插入的行）。旧行的 <code>auth_token</code> 往往已失效。此外 <code>logout()</code> 是整表清空，所谓多账号其实只能有一个。',
+  impact:'登录明明成功了，杀掉 App 重开又变成"未登录/一直 401、信息流和订阅全空"，重装或清除数据才好。运气好时有两行还都能用，就是当前用的不是你刚登的那个。',
+  after:'用哪个账号登录，下次打开还是它；旧账号要么覆盖要么能明确选择切换。',
+  fix:'主键改用 <code>restId</code>（或 screen_name 小写），并保存 <code>last_used_at</code> 让 <code>init()</code> 取最近使用；或明确"单账号"就 <code>id: \'current\'</code> 并 insert 前 clear。',
+  verify:''
+},
+{
+  sev:'中', mod:'账号与订阅', verified:'代码确认',
+  title:'12. 打开一次用户主页，订阅表就多出一条重复行',
+  loc:'lib/core/database/repository.dart:330-343, 253-262 ｜ lib/features/profile/profile_provider.dart:14-17 ｜ lib/core/client/twitter_client.dart:310-318, 685-693',
+  code:'// _subscriptionWriteMap 里带了主键 id\nawait db.update(tableSubscriptions, _subscriptionWriteMap(sub),\n  where: \'LOWER(screen_name) = ?\', whereArgs: [...]);',
+  why:'同步关注列表时 <code>Subscription.id = screenName</code>；而 <code>fetchProfile</code> 得到的 <code>id = rest_id</code>。<code>persistProfileIfSubscribed</code> 用 update 写回时把<strong>主键 id 一并改成了 rest_id</strong>。下次 <code>mergeSubscriptions</code> 按 screenName 找到旧行、却仍用 <code>id = screenName</code> 插入，<code>ConflictAlgorithm.replace</code> 匹配不到主键 → 插出新行，rest_id 那条老行留在表里。',
+  impact:'订阅列表里同一个博主出现两条（删除要点两次），条数越用越多，首页混排里该账号被重复统计，"账户已看次数"也跟着翻倍。',
+  after:'访问详情页只更新头像/简介/粉丝数，主键与行数保持稳定，订阅列表不再长重复。',
+  fix:'update 的 map 剔除 <code>id</code>（只写非主键列），或全项目统一以 <code>rest_id</code> 为主键、screen_name 建唯一索引；并为 subscriptions 加 <code>UNIQUE(screen_name)</code> 迁移兜底。',
+  verify:''
+},
+{
+  sev:'中', mod:'网络与鉴权', verified:'代码确认',
+  title:'13. 升级 App 自带的新技术查询 ID 永远不生效（旧的被永久固化）',
+  loc:'lib/core/client/query_id_resolver.dart:43, 50-73, 178-183 ｜ 238-256',
+  code:'static final Map&lt;String, String&gt; _ids = Map.from(_bundled);\nfinal raw = prefs.getString(\'xflow_query_ids\');\nmap.forEach((k, v) { if (v is String &amp;&amp; v.isNotEmpty) _ids[k] = v; });\n...\nawait prefs.setString(\'xflow_query_ids\', jsonEncode(_ids));  // 连内置默认一起落盘',
+  why:'<code>_persist()</code> 把整张表（包括<strong>从未被线上验证过的内置默认值</strong>）写进 SharedPreferences；下次启动它又覆盖新的 <code>_bundled</code>。于是你发版更新内置 ID 是无效的，磁盘上的旧值一直赢。更糟的是 <code>captureFromWebView</code> 若抓到一次过期/错误 ID，也会被固化下来反复使用。',
+  impact:'X 轮换 query id 之后，部分用户升级 App 仍然整片 404 / 首页空白 / 头像加载不出来，只有"清除应用数据或重装"才好 —— 这类反馈最难查。',
+  after:'升级内置 ID 能立刻生效；线上捕获到的新 ID 覆盖，旧的会过期而不是永久赖在磁盘上。',
+  fix:'只持久化"真实捕获/远端下发"的条目（单独一个 key），并记录来源与时间；<code>_ids</code> 优先内置默认、捕获值次之；内置 ID 随版本号变化时丢弃旧的持久化值。',
+  verify:''
+},
+{
+  sev:'中', mod:'信息流与推荐', verified:'代码确认',
+  title:'14. 订阅流为 0 条时偷偷换成"全站推荐"，还忽略你设的"只要订阅"',
+  loc:'lib/core/client/twitter_client.dart:988-1009 ｜ 735-739（过滤词与游标）',
+  code:'if (response.tweets.isEmpty) {\n  ...\n  final fallbackResponse = await fetchAlgorithmicTimeline(\n    count: loadBatchSize, filters: filters);   // 没传 strictSubscriptionsOnly\n  if (fallbackResponse.tweets.isNotEmpty) return fallbackResponse;\n}',
+  why:'SearchTimeline 返回 0 条的原因有很多：该分块最近确实没新内容、内容过滤把这一批都滤掉了、翻到末尾、query id 过期。这段兜底不区分原因一律换成 HomeTimeline（全站算法推荐），且<strong>完全没有检查 <code>strictSubscriptionsOnly</code></strong>；同时它带回来的是另一个查询的游标，首页还把它当"订阅流的下一页游标"存着。',
+  impact:'勾了"只看订阅内容"（默认就是勾的）仍然会刷出陌生人的全站推荐，感觉"过滤没生效"；继续下拉时翻页内容跳跃、重复，或一直卡在同一段。',
+  after:'只有判定为"query id 全线失效"这种明确情况才降级，并在界面上标出"降级来源：首页推荐"；订阅流翻到底就是到底（有明确的结束态），不会换内容源。',
+  fix:'兜底前判断 <code>strictSubscriptionsOnly</code> 与失败原因（连续多次空/404 才降级），返回结果里带来源标记；降级后丢弃原游标、下次从新查询重新开始。',
+  verify:''
+},
+{
+  sev:'中', mod:'信息流与推荐', verified:'代码确认',
+  title:'15. 话题流完全不理"内容类型"过滤',
+  loc:'lib/features/feed/hashtag_provider.dart:62-67, 70-87, 120-125 ｜ lib/features/settings/settings_provider.dart:13',
+  code:'var response = await client.fetchTrendingMedia(\n  query: mediaQuery, count: settings.timelineBatchSize,\n  sort: FeedSort.trending,          // 没有 filters: settings.filters\n);',
+  why:'首页、用户媒体、后台同步都在传 <code>filters</code>（并走 <code>_applyFilters</code>），话题流三处调用一次都没传；查询串又固定拼成 <code>(filter:images OR filter:videos)</code>，所以纯文字项也拿不到。设置里那排"视频/图片/文字"标签在话题页等于没点。',
+  impact:'在话题页勾"只看视频"仍然满是图片，想安静看视频做不到；反过来想只看图片时也不会滤掉视频。',
+  after:'过滤开关在首页、用户流、话题流三处行为一致。',
+  fix:'话题流调用补 <code>filters: settings.filters</code>，并把 <code>_mediaSearchQuery</code> 的选择按 filters 生成（只选文字时用纯查询）。',
+  verify:''
+},
+{
+  sev:'中', mod:'播放器', verified:'代码确认',
+  title:'16. 点屏幕不能暂停；出错一次之后长期显示"播放失败"',
+  loc:'lib/features/player/widgets/media_container.dart:442-451, 251-258, 43/173-188, 267-287',
+  code:'GestureDetector(\n  onTap: () { ...pause/play... },\n  behavior: HitTestBehavior.opaque,   // 没有 child\n),\n...\nif (widget.isVisible) {\n  if (settings.autoplay) instance.player.play();  // 每次 build 都放\n}',
+  why:'两个独立缺陷叠在一起。<strong>(a)</strong> 没有 <code>child</code> 的 <code>GestureDetector</code> 在 Stack 里尺寸是 0×0，<code>hitTest</code> 因 <code>size.contains(position)</code> 永不成立 → 暂停手势完全收不到。<strong>(b)</strong> 就算收到，任意一次重建（池变化、切 tab、点赞、后台刷新）都会在 build 里无条件 <code>play()</code>，把用户刚暂停的画面又放起来。<strong>(c)</strong> <code>_retryCount</code> 只有初值 0、成功播放或换实例后都不复位，而下方 <code>StreamBuilder</code> 会<strong>永久保留最后一个 error 值</strong>，因此 <code>snapshot.hasData</code> 一旦成立就一直显示错误页。',
+  impact:'想停下来看一眼文字说明做不到（点了没反应）；手动暂停后一切别的应用回来又自己播；某条视频网络抖一下，之后即使正常播放了，屏幕中间仍挂着"播放失败，正在切换到下一条…"和大错误文本。',
+  after:'单击暂停、再单击继续，暂停状态能保持；重试计数在播放成功后归零；错误页只在真的不可用时出现，恢复后自动消失。',
+  fix:'给 GestureDetector 套上实际内容或用 <code>Positioned.fill</code> 的透明层承接手势；在 build 里改成"仅在可见性 false→true 变化时 play()"（放到 didUpdateWidget）；<code>_retryCount</code> 在 <code>_bindSubscriptions</code> 换实例/收到 stream 恢复时清零，错误 UI 需加"仍在报错"条件。',
+  verify:''
+},
+{
+  sev:'中', mod:'播放器', verified:'代码确认',
+  title:'17. 首页卡片没有 key，列表重排后组件状态串到别的内容上',
+  loc:'lib/features/feed/tiktok_feed_screen.dart:181-199 ｜ lib/features/feed/hashtag_feed_screen.dart:274（对比：有 ValueKey）｜ lib/features/player/widgets/media_container.dart:42-44',
+  code:'return TiktokFeedItem(\n  tweet: tweets[index],       // 没有 key\n  isVisible: index == _currentIndex &amp;&amp; isScreenActive, ...);',
+  why:'没有 key 时 Element 按位置复用。首页列表在后台刷新中被整体重排（#4），index 处的 Tweet 换了人，但 <code>_TiktokMediaContainerState</code> 里的 <code>_imageIndex</code>、<code>_retryCount</code>、<code>_isAutoFullscreenDone</code>、<code>_resumeRestored</code> 全部残留。话题页因为传了 <code>ValueKey(id)</code> 所以没这个问题（但见 #18b 的页码残留）。',
+  impact:'九宫格多图会停在上一条的页码（第 3 张变第 1 张或空白）；刚换过来的一条直接显示上一条的"播放失败"；自动全屏行为错乱。',
+  after:'每条内容组件状态互不影响，重排后各归各的。',
+  fix:'<code>TiktokFeedItem(key: ValueKey(tweets[index].id), ...)</code>，与其他页面保持一致。',
+  verify:''
+},
+{
+  sev:'中', mod:'账号与订阅', verified:'代码确认',
+  title:'18. 用户主页翻到底后一直重打同一页；切换话题页码不清零',
+  loc:'lib/features/profile/profile_provider.dart:158-166 ｜ lib/features/feed/feed_provider.dart:33-40（copyWith 不能置 null）｜ lib/features/feed/hashtag_feed_screen.dart:149-150, 206 ｜ lib/core/client/twitter_client.dart:776（游标仅在非空时带上）',
+  code:'state = AsyncData(currentState.copyWith(\n  tweets: [...currentState.tweets, ...uniqueNewTweets],\n  cursorBottom: response.cursorBottom,     // 末页为 null\n  isLoadingMore: false));\n// FeedState.copyWith:\ncursorBottom: cursorBottom ?? this.cursorBottom,   // 于是永远回不去 null',
+  why:'<code>copyWith</code> 用 <code>??</code> 表达"没传就沿用旧值"，导致 <code>cursorBottom</code> <strong>没有任何方式能置回 null</strong>。最后一页返回 null 游标时旧游标仍在，<code>user_media_feed_screen</code> 的滚动监听只看 <code>isLoadingMore</code> 门控 → 每次滑到底都用同一个游标重打同一页，并反复弹同一批内容（去重后为空，但请求和配额照烧）。第二个问题：话题页 State 没有 key，点正文里的 <code>#标签</code> 换话题时 <code>_currentIndex</code> 仍是旧值（比如 7），新列表更短时会钳位到末尾，于是 <code>isVisible</code> 对所有页都是 false。',
+  impact:'① 到底之后一直转圈、内容不再新增，还悄悄吃账号配额（叠加 #2 就是"再也刷不出东西"）；② 换话题后画面定住不动、不播放，或一进来就是不相干的一条。',
+  after:'到底有明确的"没有更多了"，不会重复请求；切换话题从第 1 条开始并自动播放。',
+  fix:'FeedState 加 <code>hasMore</code>（或允许显式清游标：<code>cursorBottom: Value(...)</code>/哨兵），翻页前先判 <code>hasMore</code>；话题页传 <code>key: ValueKey(hashtag)</code> 或监听 hashtag 变化时 <code>_currentIndex=0; jumpToPage(0)</code>。',
+  verify:''
+},
+{
+  sev:'中', mod:'设置与更新', verified:'代码确认',
+  title:'19. 点"清除媒体缓存"后数字不变、也没提示；滑缓存上限会立刻真删',
+  loc:'lib/features/settings/settings_screen.dart:116-120, 628-672 ｜ lib/core/utils/media_cache_manager.dart:61-111 ｜ lib/features/settings/settings_screen.dart:40-50',
+  code:'StorageSettingsPage(metadataCount: ..., cacheSizeMB: ..., onRefresh: _loadStats),\n// 子页面是已 push 的 route，构造参数不会随父页面 setState 变新\nSlider(... onChanged: (v) {\n  notifier.updateMediaCacheSize(v.round());\n  CustomMediaCacheManager.enforceLimit(v.round());   // 每滑一档真删一次\n  onRefresh(); })',
+  why:'<code>onRefresh</code> 只让父页面 setState，<strong>不会重建已经 push 出去的 StorageSettingsPage</strong>（它是另一个 route，参数是快照），所以"已用 X MB"和"N 条记录"在点完清理按钮后纹丝不动，也没有 SnackBar。另外滑条用的是 <code>onChanged</code> 而不是 <code>onChangeEnd</code>，拖动过程中每跨一档都会执行一次真删（<code>enforceLimit</code> 按最旧优先删文件、删除失败被 <code>catch (_)</code> 吞掉、也没 await），并且和 <code>_loadStats</code> 里那次 enforceLimit 并发扫同一目录 —— 打开设置页这个动作本身就在静默删缓存。',
+  impact:'用户认定"清理没生效"，反复点或去重装；本来只想看看缓存多大，结果把 500MB 图片缓存拖没了，之后所有图片都要重新下载。',
+  after:'清完数字立刻变小并提示"已清除 XX MB"；拖动滑条只改数字，松手才按新上限收缩；查看设置页不会删任何文件。',
+  fix:'让子页面自己 <code>ref.watch</code> 或用 <code>refreshIndicator</code>/回调重建；清理与限流后弹 SnackBar；<code>enforceLimit</code> 移到 <code>onChangeEnd</code>，统计接口不要带删除副作用；删除失败计数并记日志。',
+  verify:''
+},
+{
+  sev:'中', mod:'设置与更新', verified:'代码确认',
+  title:'20. "清除已看元数据"清不掉真正的已看名单',
+  loc:'lib/features/settings/settings_screen.dart:684-693 ｜ lib/core/database/repository.dart:727-733 ｜ 622-648（watched_media）',
+  code:'await db.delete(tableCachedMedia, where: \'played_count &gt; 0\');   // 只动 cached_media\n// watched_media 表一行没删，而它才是过滤依据',
+  why:'"避开已看内容"实际是两张表：首页混排读的是 <code>watched_media</code>（<code>getWatchedIdentifiers</code> + <code>filterUnwatched</code>），而这个按钮只删 <code>cached_media</code> 里 <code>played_count&gt;0</code> 的行。删完反而把"看过几次的统计"丢了，被 #5 误标的内容照样不再出现。',
+  impact:'用户点它想"让看过的重新出现一遍"，结果什么都没变，只是记录条数少了（还少了"已看 N 次"统计）。',
+  after:'一键真正重置已看状态，之前被误标/想重看的内容重新进入候选池；文案与实际行为一致，并有二次确认。',
+  fix:'同时 <code>delete(tableWatchedMedia)</code> 并保留（或按需清空）<code>played_count</code>；界面上把两个动作拆成"清空已看记录"和"清空本地缓存条目"。',
+  verify:''
+},
+{
+  sev:'中', mod:'设置与更新', verified:'代码确认',
+  title:'21. 检查更新：加载框可能永远关不掉，断网却提示"当前已是最新版本"',
+  loc:'lib/features/settings/settings_screen.dart:207-225 ｜ lib/core/services/update_service.dart:39, 68-70 ｜ 194-197',
+  code:'showDialog(... barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));\nfinal updateInfo = await UpdateService.checkForUpdate();\nif (!context.mounted) return;        // 直接 return，上面那个框没人 pop\nNavigator.of(context).pop();\nif (updateInfo == null) { ...Text(\'当前已是最新版本\')... }',
+  why:'<code>checkForUpdate</code> 把所有异常/非 200 都收敛成 <code>return null</code>（第 39、68-70 行），UI 无法区分"没更新"和"没查成"；而 <code>raw.githubusercontent.com</code> 在国内网络失败是常态。另外这个遮罩框没有 try/finally，12 秒超时期间用户退出设置页就再没人 pop 它，返回后框还挂着（挡住后续操作）。',
+  impact:'"明明发了新版，我点检查更新却说已是最新"→ 用户卡在老版本；偶发退出页面后屏幕中间一个转圈弹窗关不掉。',
+  after:'网络失败提示"检查失败，请检查网络后重试"（绿色"已是最新"只在真的比过版本号相同/更旧时出现）；任何退出路径都会关闭加载框，并显示"上次检查时间"。',
+  fix:'<code>checkForUpdate</code> 返回带错误的结果类型（或抛具体异常给 UI 分类）；用 <code>try { ... } finally { if (navigator.canPop()) navigator.pop(); }</code> 并持有 <code>Route</code> 引用。顺带把 <code>_parseDownloadUrls</code> 的兜底 tag 与实际 release tag 规则统一（现在兜底拼 <code>v0.1.32</code>，而 update.json 里的资源在 <code>0.1.31</code> 这种无 v 前缀 tag 下）。',
+  verify:''
+},
+{
+  sev:'中', mod:'设置与更新', verified:'代码确认',
+  title:'22. 首次启动的默认值和代码里的默认值不一致，冷启动还会先用错过滤查库',
+  loc:'lib/features/settings/settings_provider.dart:72, 88 vs 217, 249, 281 ｜ 210-213 ｜ lib/features/feed/feed_provider.dart:122, 129-133',
+  code:'this.filters = const {MediaFilter.image, MediaFilter.text},   // 类默认\nfinal filterStrings = _prefs.getStringList(\'filters\') ?? [];   // 首启 = 空集\nfinal fetchStrategyIdx = _prefs.getInt(\'fetchStrategy\') ?? 0;  // = FeedSort.latest\nthis.fetchStrategy = FeedSort.chronological,                   // 类默认',
+  why:'<code>build()</code> 先同步返回硬编码初始状态、再异步 <code>_init()</code> 覆盖。全新安装（prefs 空）会经历"硬编码默认 → prefs 默认"两套值：<strong>抓图策略从 <code>chronological</code> 变成 <code>latest</code>、抓取内容类型从"图片+文字"变成"全部"</strong>。更实际的问题是首页 <code>build()</code> 里 watch 了 settings，会用"图片+文字"这副错过滤先查一次本地库（把视频滤掉），_init 完成后又整个重建一次。',
+  impact:'全新安装用户拿到的不是设计者预期的抓取方式（没抓 X 关注流而是走了搜索"最新"分支），首屏偶发一闪而过的空白/列表重来。',
+  after:'首启默认与代码文档一致，且初始化完成前不去查库、不出现二次重建。',
+  fix:'把两处默认值统一成一份常量（<code>SettingsState.defaults()</code>）；<code>FeedNotifier</code> 在 <code>settings.isInitialized</code> 之前直接返回空/加载态。另外 <code>_prefs</code> 是 <code>late</code>，_init 前若被调用（例如冷启动瞬间进设置页点开关）会抛 LateInitializationError，建议改成 <code>SharedPreferences? + 判空</code>，并且 <code>setXxx</code> 都 await 或记错。',
+  verify:''
+},
+{
+  sev:'中', mod:'设置与更新', verified:'代码确认',
+  title:'23. 所谓"本地媒体缓存 MB 上限"管不到视频，头像也不在统计里',
+  loc:'lib/core/utils/media_cache_manager.dart:11-22, 24-56 ｜ lib/features/player/widgets/media_container.dart:584, 607 ｜ lib/features/feed/tweet_detail_screen.dart:140 ｜ lib/features/feed/widgets/tweet_text_overlay.dart:183',
+  code:'Config(key, stalePeriod: const Duration(days: 7), maxNrOfCacheObjects: 200, ...)\n// 视频：player.open(Media(url))  —— 完全不走 CacheManager',
+  why:'只有 <code>CachedNetworkImage</code>（图片）走 <code>CustomMediaCacheManager</code>；视频是 media_kit 直连 URL 流式播放，不落盘，所以"媒体缓存 100–2000MB"这个上限对最占空间的视频根本不起作用。而头像用的是 <code>CachedNetworkImageProvider</code>（走 DefaultCacheManager，另一个目录），既不计入"已用 MB"也删不掉。同时 <code>maxNrOfCacheObjects: 200</code> 本身就会先于 MB 上限把对象淘汰掉。',
+  impact:'设置页显示的"已用/限制"跟用户体感（"这 App 吃了我 1.2GB"）对不上；清理完还会被系统或头像缓存"没清干净"的观感抵消；图片很多时 200 个对象的上限会让缓存反复失效重下。',
+  after:'数字与实际占用一致（含视频与头像），限制真正生效，清理能把列出来的东西都清掉。',
+  fix:'要么让视频真的走本地代理/下载缓存，要么把文案改成"图片缓存"并删掉无效含义；统计与清理都覆盖 DefaultCacheManager 目录与 ffcache 目录；<code>maxNrOfCacheObjects</code> 与 MB 上限取一致口径。',
+  verify:''
+},
+{
+  sev:'中', mod:'网络与鉴权', verified:'代码确认',
+  title:'24. API 超时设置超过 15 秒无效；txId 第三方服务报错时不进入冷却',
+  loc:'lib/core/client/twitter_account.dart:204-210, 166-190 ｜ lib/features/settings/settings_provider.dart:268',
+  code:'response = await http.post(uri, ...).timeout(const Duration(seconds: 15));  // 写死\n// 上层：await TwitterAccount.fetch(...).timeout(Duration(seconds: timeoutSeconds));\n...\nif (transactionResponse.statusCode == 200) { ... }\nelse { txIdStatus = \'missing:generator-status-...\'; }   // 没设冷却\n_txIdRemoteCooldownUntil = null;                        // 还把冷却清了\n} catch (e) { _txIdRemoteCooldownUntil = now + 60s; }',
+  why:'超时时间被两层包裹，内层 15 秒是常量，所以设置里"API 超时秒数">15 时不再生效（小的仍有效，表现为"调了没反应"）。另外 txId 生成器只有<strong>抛异常</strong>才冷却，返回 500/404 这类非 200 时不但没冷却，还把已有冷却清空，同时每个业务请求都要先白等一次外部 HTTP（超时上限 2 秒）。',
+  impact:'弱网/大 batch 场景下"把超时调到 30 秒"救不了；第三方生成器挂了的时候，每个接口都慢 2 秒左右，用户感觉整个 App 卡。',
+  after:'设置值真生效；生成器不可用时快速降级（不发请求头即可，代码注释也说了 X 目前不强制要求），不再拖慢每个请求。',
+  fix:'内层超时用传参；非 200、响应体缺字段也设置同样的冷却窗口，并在冷却内直接跳过远端调用。',
+  verify:''
+},
+{
+  sev:'中', mod:'信息流与推荐', verified:'代码确认',
+  title:'25. 翻页去重不完整：同一条内容可以连续出现两次',
+  loc:'lib/features/feed/feed_provider.dart:288-460（尤其 300-312, 332-340, 383-392, 427-432）｜ lib/core/database/repository.dart:446-493',
+  code:'final seenIds = state.value!.tweets.map((t) =&gt; t.id).toSet();   // 循环里不更新\nwhile (allNewTweets.length &lt; threshold ...) {\n  final dbCandidates = await Repository.getCachedMediaCandidates(...);\n  ...\n  allNewTweets.addAll(localNew);      // 可能重复\n  allNewTweets.addAll(freshUnique);   // 页间重复也直接加\n}\nallNewTweets.shuffle();\nfinal finalNewTweets = allNewTweets.take(settings.loadBatchSize)...;',
+  why:'<code>seenIds / seenMedia</code> 在循环外算一次，循环内既不加新拿到条目、也不加 <code>allNewTweets</code> 自身；一次 fetchMore 会多轮取 DB+多页 API，同一 id 被反复塞进候选；末尾只 <code>shuffle().take()</code>，<strong>没有对已有列表和候选内部做最终去重</strong>（首页刷新路径 <code>_runDiscoveryPipeline</code> 反而有 <code>deduplicate</code>，这条路径漏了）。DB 侧 <code>getCachedMediaCandidates</code> 还有个连带问题：它把 <code>limit*2</code> 取出的行<strong>全部</strong>标记为已建议，而只返回 shuffle 后的前 <code>limit</code> 条 —— 另半条没给用户看却被推到队尾。',
+  impact:'下滑加载时同一条视频连续出现两次（或隔几条又出现）；小池子时内容周转更死板，感觉"翻来覆去就这几条"。',
+  after:'同一会话内不出现重复条目；候选池排队公平，被取过的条目不会因为没展示就被降权。',
+  fix:'循环内维护 <code>seenIds</code>（每次 add 后更新），最终拼接前再对 <code>state.value!.tweets</code> 做一次差集；<code>markAsSuggested</code> 只标记真正返回的那些。',
+  verify:''
+},
+{
+  sev:'中', mod:'账号与订阅', verified:'代码确认',
+  title:'26. 并发写库/取库没有单例保护，退出登录也不清 HTTP 缓存',
+  loc:'lib/core/database/repository.dart:41-45 ｜ lib/core/client/twitter_account.dart:37-39, 96-107, 219-221, 264-268 ｜ lib/core/client/twitter_client.dart:604-611',
+  code:'static Future&lt;Database&gt; get database async {\n  if (_database != null) return _database!;\n  _database = await _initDatabase();      // 并发时两次打开\n  return _database!;\n}\nstatic String _getCacheKey(Uri uri) =&gt; md5(...uri.toString()...);  // 与账号无关',
+  why:'<code>await</code> 之前不占位，冷启动多个调用方（main 的 Future.wait、各 provider）同时进入就会 <code>openDatabase</code> 两次、旧对象泄漏（在测试环境 <code>FLUTTER_TEST</code> 下每次都是全新的内存库，直接导致测试互不可见）。响应缓存 key 只有 URI 的 md5，<code>logout()</code> 只删了账号表；Following 响应带 15 分钟缓存。',
+  impact:'换账号或退出后 15 分钟内可能读到上一个账号的响应体（表现为"同步到的关注列表像别人的"），退出后仍看得到上一账号数据；偶发数据库句柄错乱。',
+  after:'数据库句柄唯一；缓存 key 与账号绑定；退出登录同时清掉响应缓存与在途请求状态。',
+  fix:'用 <code>Completer</code>/单 Future 守卫打开数据库；cache key 加 <code>restId</code>；logout 清 FFCache、并调用 <code>TwitterClient.resetQueue()</code> 之外的查询状态清理。',
+  verify:''
+},
+{
+  sev:'中', mod:'导航与页面', verified:'代码确认',
+  title:'27. 从话题流点进用户，返回时话题流整个丢了',
+  loc:'lib/core/navigation/navigation_provider.dart:55-66, 72-80 ｜ lib/main.dart:122-135, 157-163',
+  code:'void selectUser(String screenName) {\n  state = state.copyWith(selectedUser: screenName,\n      clearMediaIndex: true, clearHashtag: true);   // 把来源清掉了\n}',
+  why:'导航是"扁平三字段"而不是栈。进入用户主页时把 <code>selectedHashtag</code> 清了，所以 <code>back()</code> 时无从恢复；<code>PopScope</code> 只是把它路由到 <code>back()</code>。',
+  impact:'话题流里看到博主点进去，返回后回的是主信息流而不是刚才的话题 —— 得重新点进话题，翻页位置也丢了。',
+  after:'返回回到进入前的层级（话题页及其浏览位置保留）。',
+  fix:'改成路由栈（<code>List&lt;Route&gt;</code>）或至少保留 <code>previousHashtag</code>；或在 overlay 场景改用真正的 <code>Navigator.push</code>。',
+  verify:''
+},
+{
+  sev:'中', mod:'导航与页面', verified:'代码确认',
+  title:'28. 从网格点第 40 条进全屏，看到的常是另一条',
+  loc:'lib/features/profile/user_media_feed_screen.dart:113-133 ｜ lib/features/profile/profile_provider.dart:44-50, 88-101',
+  code:'if (next.hasValue &amp;&amp; !_initialized) {\n  ... foundIndex == -1 时 targetIndex 保持 widget.initialIndex ...\n  _initialized = true;      // 第一次事件（仅缓存页）就定终身\n}',
+  why:'<code>build()</code> 先返回"只有本地缓存"的列表并触发后台取新数据。全屏页把第一个数据事件（缓存页）当作定局设了页码并置 <code>_initialized=true</code>；随后 API 结果按 <code>createdAt</code> 降序合并，新推文凭空插到列表头部，索引整体右移，但不再重定位。<code>#1</code> 的存在让排序键全是 null，顺序更不可控。',
+  impact:'点某条想看它，进来是另一条；下拉刷新后还会跳位。',
+  after:'按 <code>initialTweetId</code> 精确进入，列表增长也不改变当前观看对象。',
+  fix:'只有 <code>initialTweetId</code> 命中才置 <code>_initialized</code>；列表变化时用 id 重新校准页码；找不到就显式提示而不是静默跳。',
+  verify:''
+},
+{
+  sev:'中', mod:'账号与订阅', verified:'代码确认',
+  title:'29. 登录取用户名：判空写在去引号之前；取到的未必是本人',
+  loc:'lib/features/auth/login_screen.dart:41-48 ｜ 已核对 webview_flutter_android-4.14.0: lib/src/android_webview_controller.dart:522-533',
+  code:'String screenName = (await _controller.runJavaScriptReturningResult(\n    "document.documentElement.outerHTML.match(/&quot;screen_name&quot;:&quot;([^&quot;]+)&quot;/)?.[1] ?? \'\';")).toString();\nif (screenName == \'\' || screenName == \'null\') { return; }\nscreenName = screenName.replaceAll(\'"\', \'\');',
+  why:'Android 的 <code>runJavaScriptReturningResult</code> 返回 JSON 编码后的原始串：JS 里的 <code>\'\'</code> 会变成两字符的 <code>""</code>，所以 <code>== \'\'</code> 和 <code>== \'null\'</code> 两个守卫都命不中（判空形同虚设），要到下一行才被清成空串继续往下走。此外匹配的是整页 outerHTML 里<strong>第一个</strong> <code>screen_name</code>，/home 内嵌的数据里可能先出现别人的（列表项、引用卡）。',
+  impact:'已登录却偶发弹"登录失败，无法获取账号信息"，需要重试；极端情况下存了别人的用户名/restId，之后"同步关注列表"会把陌生人的关注灌进你的订阅。',
+  after:'取不到就干净退出并提示，取到的一定是会话本人。',
+  fix:'先 <code>replaceAll(\'"\',\'\').trim()</code> 再判空；身份改为从 <code>account_settings/current_user</code> 类接口或 <code>auth_token</code> 对应用户取，而不是正则首个匹配。',
+  verify:'<span class="chip v todo">待真机确认</span> 触发频率需要用真机 HTML 样本复现（判空顺序与 Android 返回值格式已确认）。'
+},
+{
+  sev:'中', mod:'账号与订阅', verified:'代码确认',
+  title:'30. 订阅导入失败会漏流；清空订阅后列表不刷新',
+  loc:'lib/features/subscriptions/subscription_import_screen.dart:28-53 ｜ lib/features/settings/settings_screen.dart:719-728, 193-197 ｜ lib/features/subscriptions/subscription_list_screen.dart:242-254',
+  code:'_streamController = StreamController&lt;int&gt;();   // 覆盖上一个，且不 close\n} catch (e, stackTrace) {\n  _streamController?.addError(e, stackTrace);    // 异常分支没 close\n}',
+  why:'正常路径关了流、异常路径只 <code>addError</code> 不 <code>close</code>，重试时又把旧 controller 直接覆盖（永不释放）；如果上一轮已 close 再 <code>add</code> 会抛 <code>Cannot add event after closing</code>。另外"清空所有订阅"和"退出登录"都只 invalidate 了 <code>feedNotifierProvider</code>，没 invalidate <code>subscriptionListProvider</code>（那个只在点 tab 时刷新，main.dart:170-172）。同步关注按钮在 <code>await</code> 之后直接用 <code>ref</code> 也没判 mounted。',
+  impact:'导入失败一次之后，进度条卡住或状态一直"正在导入"；清空订阅后按返回键，列表里全都还在，会让人以为没清掉又点一次。',
+  after:'导入可反复重试、进度正常收尾；清空/退出后所有相关页面立刻一致地变空。',
+  fix:'新建前 <code>_streamController?.close()</code>，在 <code>finally</code> 统一 close；把 <code>subscriptionListProvider</code> 一并 invalidate；await 后判 <code>mounted</code> 再用 ref。',
+  verify:''
+},
+{
+  sev:'低', mod:'导航与页面', verified:'代码确认',
+  title:'31. 启动初始化没有兜底，失败就是纯黑屏',
+  loc:'lib/main.dart:25-31',
+  code:'await Future.wait([TwitterAccount.init(), QueryIdResolver.init(), Repository.database]);\nrunApp(const ProviderScope(child: XFlowApp()));',
+  why:'三个初始化任一抛异常（磁盘满/DB 损坏/迁移失败、prefs 不可读）就不会走到 <code>runApp</code>，Flutter 默认不显示任何东西。',
+  impact:'个别用户点开 App 只看到黑屏，必须杀进程重装/清数据，且不会留下任何日志。',
+  after:'最差也能进到界面并给出"数据初始化失败，点击修复/重置"的可操作提示。',
+  fix:'try/catch 包住并 <code>runApp</code> 一个错误页；DB 打不开时提示"重置本地数据"。顺带给 <code>Repository._initDatabase</code> 的 <code>onUpgrade</code> 加 <code>ALTER TABLE</code> 失败容错（列已存在时 12 级迁移会整段中断）。',
+  verify:''
+},
+{
+  sev:'低', mod:'设置与更新', verified:'代码确认',
+  title:'32. 应用日志页不会自动刷新，清空也没有确认',
+  loc:'lib/features/settings/log_viewer_screen.dart:12-40 ｜ lib/core/utils/app_logger.dart:7-16',
+  code:'final logs = AppLogger.logs;   // List.unmodifiable 的快照拷贝，只在 build 时取一次',
+  why:'页面没有 Timer/StreamBuilder，<code>AppLogger</code> 也没有变更通知；<code>logs</code> 只是当下拷贝，所以打开后新日志不会出现。删除图标直接清掉内存里唯一的一份日志（上限 1000 条），没二次确认也没法找回。',
+  impact:'用户反馈"App 没记录日志"；想截图时看不到刚发生的报错；一键清空后无法把日志发给你。',
+  after:'列表实时追加（或每 1-2 秒刷新），清空前确认，并支持"导出/分享日志"。',
+  fix:'给 AppLogger 加 <code>ChangeNotifier/Stream</code>，或页面用 <code>Timer.periodic</code> + <code>setState</code>；清空加确认对话框。',
+  verify:''
+},
+{
+  sev:'低', mod:'缓存与数据层', verified:'代码确认',
+  title:'33. 同一内容重复抓取时不更新缺失字段（宽高、头像等）',
+  loc:'lib/core/database/repository.dart:366-390',
+  code:'conflictAlgorithm: ConflictAlgorithm.ignore,  // Don\'t overwrite play counts if already exists',
+  why:'为了不覆盖播放计数选了 <code>ignore</code>，副作用是首次入库时缺的 <code>media_width/media_height/thumbnail/media_key</code>（或后来才有的更好数据）永远不会被补上。',
+  impact:'某些条目永远按"无尺寸"布局（占位比例不对、图片/视频边缘留黑边），后续抓取到正确尺寸也不生效。',
+  after:'统计字段（played_count 等）保留，内容字段随抓取更新。',
+  fix:'改成"upsert 时保留 <code>played_count/last_played_at/duration_watched</code>"（先读后写或用 <code>INSERT ... ON CONFLICT DO UPDATE SET</code>）。',
+  verify:''
+},
+{
+  sev:'低', mod:'缓存与数据层', verified:'代码确认',
+  title:'34. 订阅同步时间戳列从来没被写入（表结构与实体不一致）',
+  loc:'lib/core/database/entities.dart:57-65（toMap 缺 profile_synced_at）｜ lib/core/database/repository.dart:221-238（用了 toMap）｜ 253-262（另一套写映射有该列）',
+  code:'Map&lt;String, dynamic&gt; toMap() =&gt; { \'id\': id, ... \'following_count\': followersCount... }; // 无 profile_synced_at',
+  why:'同一个实体存在两套写映射：走 <code>toMap()</code> 的插入（<code>insertSubscription/insertSubscriptions</code>）在 <code>ConflictAlgorithm.replace</code> 下会把 <code>profile_synced_at</code> 写回 NULL；走 <code>_subscriptionWriteMap</code> 的 merge 路径会保留。<code>insertSubscriptions</code>（批量版）目前无调用点。',
+  impact:'目前用户可见影响很小（该列也没有读取者），但它是"profile 同步频率"这类功能落地时的暗坑；同一个表两套写入语义，后续极易出现"为什么时间戳又没了"。',
+  after:'实体只有一套写映射，字段与表结构一致。',
+  fix:'让 <code>toMap()</code> 输出 <code>profile_synced_at</code>，并删掉 <code>_subscriptionWriteMap</code> 或让它复用 <code>toMap()</code>。',
+  verify:''
+},
+{
+  sev:'低', mod:'网络与鉴权', verified:'代码确认',
+  title:'35. 未知操作名会拼出 /graphql/null/xxx 并真的发出请求',
+  loc:'lib/core/client/query_id_resolver.dart:158-172',
+  code:'final id = _ids[op] ?? (...) ?? _bundled[op];\nreturn \'/graphql/$id/$op\';   // id 为 null 时得到字符串 "null"',
+  why:'字符串插值不报错，null 变成 "null" 直接拼进 URL；<code>candidatePaths</code> 同样会把 null 塞进列表首位。',
+  impact:'将来新增一个操作忘了登记 ID 时，表现为该功能静默失败（点赞/关注没反应），日志里只有一个 404。',
+  after:'缺 ID 时立即在本地抛错并给出可读提示，不发出请求。',
+  fix:'ID 取不到时 <code>throw StateError(\'missing query id for $op\')</code>（或返回 null 让调用方跳过并记日志）。',
+  verify:''
+},
+{
+  sev:'低', mod:'播放器', verified:'待真机',
+  title:'36. 图片未做解码降采样；明文流量全局放开；安装器 intent 可能解析不到',
+  loc:'lib/features/player/widgets/media_container.dart:579-617 ｜ android/app/src/main/AndroidManifest.xml:11, 54-59 ｜ lib/.../MainActivity.kt:77-82',
+  code:'CachedNetworkImage(imageUrl: ..., fit: BoxFit.contain)   // 无 memCacheWidth/Height',
+  why:'三处独立的小问题：① 全尺寸解码大图（1080×1920 之外还有 4 图组），低端机上内存峰值高，容易 OOM 或掉帧；② <code>usesCleartextTraffic="true"</code> 全局放开，而本项目 API/媒体地址都是 HTTPS，没必要；③ <code>queries</code> 只声明了 <code>PROCESS_TEXT</code>，而更新流程用 <code>ACTION_VIEW + package-archive</code> 拉安装器，Android 11+ 的包可见性限制下可能查不到可处理的应用。',
+  impact:'① 图片多的机型上滑动会卡或闪退；② 安全面变宽（无功能收益）；③ <span class="chip v todo">待真机确认</span> 更新下载完可能报"无法安装/找不到应用"。',
+  after:'图片按显示尺寸解码、内存平稳；仅必要域名允许明文（或直接关掉）；更新能正常拉起系统安装页。',
+  fix:'① 传 <code>memCacheWidth</code>（注意上次提交里 memCacheHeight 引起变形，只给宽、保持比例）；② 去掉 <code>usesCleartextTraffic</code> 或用 network_security_config 精确放行；③ <code>&lt;queries&gt;</code> 加 <code>intent</code>（ACTION_VIEW + package-archive）或改用 <code>FileProvider</code> + <code>startActivityForResult</code>。',
+  verify:'验证 ③：Android 12+ 真机走"检查更新 → 下载 → 安装"，看是否 ActivityNotFoundException。'
+},
+{
+  sev:'高', mod:'工程与发版', verified:'已实测',
+  title:'37. 三个测试文件根本编译不过 → 主页/详情/首页的回归保护实际为零',
+  loc:'test/features/profile/profile_provider_test.dart:152, 157, 168 ｜ test/features/profile/user_details_screen_test.dart:128, 133, 144 ｜ test/features/feed/tiktok_feed_screen_test.dart:57 ｜ .github/workflows/release.yml（只 build，不 analyze/test）',
+  code:'error - \'TestTwitterClient.fetchUserTimeline\' (... int timeoutSeconds})\' isn\'t a valid override of\n  \'TwitterClient.fetchUserTimeline\' (... Set&lt;MediaFilter&gt;? filters, int timeoutSeconds})\n  - invalid_override\nerror - \'MockFeedNotifier.build\' (\'FutureOr&lt;FeedState&gt; Function()\') isn\'t a valid override of\n  \'FeedNotifier.build\' (\'Future&lt;FeedState&gt; Function()\')',
+  why:'生产代码这几轮改过签名（<code>fetchProfile</code> 加了 <code>onRateLimit</code>；<code>fetchUserTimeline</code> / <code>fetchUserTimelineByScreenName</code> 加了 <code>filters</code>；<code>FeedNotifier.build</code> 返回类型收紧成 <code>Future&lt;FeedState&gt;</code>），但测试里的假实现没跟上，属于<strong>编译期错误</strong>：这 3 个文件连跑都跑不起来。CI 那条流水线只在打 tag 时 <code>flutter build apk</code> 并发布，既不 <code>analyze</code> 也不 <code>test</code>，所以没有任何环节会因此报错——问题就一直躺着。',
+  impact:'你以为"用户主页 + 详情页 + 首页"有测试兜着，实际是 0 覆盖：#1（时间全 null）、#15（话题流过滤没生效）这类回归，本来都能被一条断言抓到。发版全靠手点，改一处坏一片。',
+  after:'三个文件能编译并通过；签名再变时编译器当场提醒；发版流水线有一道 analyze/test 闸门，不过就不出 tag。',
+  fix:'① 测试替身补齐参数（或继承真实类型）；② release.yml 在 build 之前加 <code>flutter analyze --fatal-infos=false</code> 与 <code>flutter test</code>；③ 顺手把 <code>flutter test</code> 的失败输出留到 release 说明里，避免再次静默。',
+  verify:'结论来自本次实跑的 <code>flutter analyze</code>（744 秒，25,510 条），不是推测。'
+},
+{
+  sev:'低', mod:'导航与页面', verified:'已实测',
+  title:'38. 跨 await 使用 BuildContext（静态分析在 lib\\ 里唯一一条真实告警）',
+  loc:'lib/features/feed/widgets/tweet_text_overlay.dart:124 ｜ 全量核对：lib\\ 其余文件 analyze 无 error/warning（另有 10 处 withOpacity 弃用提示）',
+  code:'// analyzer: use_build_context_synchronously\n// Don\'t use \'BuildContext\'s across async gaps, guarded by an unrelated \'mounted\' check.',
+  why:'点击正文里的 #标签 走异步流程后用了页面的 <code>context</code>，而守卫用的是<strong>另一个对象的 mounted</strong>（State.mounted 与传入的 BuildContext 生命周期不同步）。页面已经 pop 时再访问该 context，就会命中 "Looking up a deactivated widget\'s ancestor is unsafe"。',
+  impact:'偶发：在信息流里点话题标签的瞬间返回上一页，会闪退或点了没反应。概率低但难复现。',
+  after:'异步后只用仍然存活的 context，销毁路径静默跳过。',
+  fix:'把守卫改成 <code>if (!context.mounted) return;</code>（Flutter 3.x 支持 BuildContext.mounted），或在 await 之前先取好 Navigator/ScaffoldMessenger。',
+  verify:''
+},
+{
+  sev:'低', mod:'工程与发版', verified:'代码确认',
+  title:'39. 本地 SDK 目录把静态分析淹没了；33.7MB 的 APK 被提交进了 git',
+  loc:'flutter_sdk\\（工程根目录，已 gitignore 但会被 analyze 扫描）｜ xflow_v0.31_filter_fix.apk（已被 git 跟踪）｜ xflow_v0.5.1_media_fix.apk（62MB，在 .gitignore 第 148 行）',
+  code:'25510 issues found. (ran in 744.2s)   // 其中约 2.4 万条路径以 flutter_sdk\\ 开头\n// git ls-files 显示: xflow_v0.31_filter_fix.apk 已被跟踪',
+  why:'两个不一致的坑：① 把整套 Flutter SDK 放在工程根目录下，<code>flutter analyze</code> 不看 .gitignore，会把 SDK 的 dev/integration_tests 全扫一遍，于是真实信号（#37 那 7 条 error）被 2.4 万条噪声埋掉，分析还要跑 12 分钟；② APK 一个被 git 跟踪、一个被忽略，规则前后不统一，而 <code>update.json</code> 明明已经指向 GitHub Releases 下载。',
+  impact:'你几乎不会去翻静态分析结果（太长、太慢），于是 lib/test 里的真问题没人看得见；仓库每多一个 APK 就多 30~60MB，clone 与 CI 缓存都变慢。',
+  after:'<code>flutter analyze</code> 几十秒内出结果、只剩项目自己的条目；APK 只存在于 Releases，仓库干净。',
+  fix:'① 给 SDK 目录挪出工程根（例如 G:\\flutter），或分析时显式 <code>flutter analyze lib test</code>；② <code>git rm --cached xflow_v0.31_filter_fix.apk</code> 并在 .gitignore 补 <code>*.apk</code>，历史体积需要时用 BFG 清理。',
+  verify:''
+}
+];
+
+const list = document.getElementById('list');
+const modSel = document.getElementById('mod');
+const sevName = {高:'高危', 中:'中危', 低:'低危'};
+let curSev = 'all', curMod = 'all', q = '';
+
+[...new Set(BUGS.map(b => b.mod))].forEach(m => {
+  const o = document.createElement('option'); o.value = m; o.textContent = m; modSel.appendChild(o);
+});
+
+function esc(s){ return (s||'').replace(/&(?!amp;|lt;|gt;|quot;|#)/g,'&amp;'); }
+
+function render(){
+  list.innerHTML = '';
+  let n = 0;
+  BUGS.forEach((b, i) => {
+    if(curSev !== 'all' && b.sev !== curSev) return;
+    if(curMod !== 'all' && b.mod !== curMod) return;
+    const hay = (b.title + b.loc + b.impact + b.after + b.why).toLowerCase();
+    if(q && !hay.includes(q)) return;
+    n++;
+    const card = document.createElement('div');
+    card.className = 'card' + (b.sev === '高' ? ' open' : '');
+    card.innerHTML = `
+      <div class="top">
+        <h3>${esc(b.title)}</h3>
+        <span class="chip s${b.sev}">${sevName[b.sev]}</span>
+        <span class="chip m">${b.mod}</span>
+        <span class="chip v ${b.verified==='待真机'?'todo':''}">${b.verified}</span>
+      </div>
+      <div class="body">
+        <div class="row"><div class="lab">位置</div><div class="loc">${esc(b.loc)}</div></div>
+        <div class="row"><div class="lab">相关代码</div><pre>${esc(b.code)}</pre></div>
+        <div class="row"><div class="lab">为什么是 bug</div><p>${esc(b.why)}</p></div>
+        <div class="row impact"><div class="lab" style="color:#ffb3b3">你现在会看到</div><p>${esc(b.impact)}</p></div>
+        <div class="row after"><div class="lab" style="color:#a8e6b0">修复后的正确效果</div><p>${esc(b.after)}</p></div>
+        <div class="row"><div class="lab">改法建议</div><p>${esc(b.fix)}</p></div>
+        ${b.verify ? `<div class="row"><div class="lab">备注</div><p>${esc(b.verify)}</p></div>` : ''}
+      </div>`;
+    card.querySelector('.top').onclick = () => card.classList.toggle('open');
+    list.appendChild(card);
+  });
+  if(!n) list.innerHTML = '<div class="note">没有匹配的条目。</div>';
+}
+
+document.getElementById('c-high').textContent = BUGS.filter(b=>b.sev==='高').length;
+document.getElementById('c-mid').textContent  = BUGS.filter(b=>b.sev==='中').length;
+document.getElementById('c-low').textContent  = BUGS.filter(b=>b.sev==='低').length;
+document.getElementById('c-total').textContent = BUGS.length;
+
+document.querySelectorAll('.btn[data-sev]').forEach(btn => btn.onclick = () => {
+  document.querySelectorAll('.btn[data-sev]').forEach(x=>x.classList.remove('on'));
+  btn.classList.add('on'); curSev = btn.dataset.sev; render();
+});
+modSel.onchange = () => { curMod = modSel.value; render(); };
+document.getElementById('q').oninput = e => { q = e.target.value.trim().toLowerCase(); render(); };
+document.getElementById('expand').onclick = () => document.querySelectorAll('.card').forEach(c=>c.classList.add('open'));
+document.getElementById('collapse').onclick = () => document.querySelectorAll('.card').forEach(c=>c.classList.remove('open'));
+render();
+</script>
+<noscript><div style="padding:20px;color:#ff5c5c">本页明细由脚本渲染，请在浏览器中启用 JavaScript 查看（文件本身无外部依赖，离线可看）。</div></noscript>
+</body>
+</html>

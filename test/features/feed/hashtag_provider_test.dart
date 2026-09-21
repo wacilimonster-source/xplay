@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:xplay/core/client/twitter_client.dart';
 import 'package:xplay/core/models/tweet.dart';
 import 'package:xplay/features/feed/feed_provider.dart';
@@ -8,6 +9,10 @@ import 'package:xplay/features/settings/settings_provider.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  // The notifier reads the watched-content list from SQLite; without the FFI
+  // factory the whole group died with "databaseFactory not initialized".
+  sqfliteFfiInit();
+  databaseFactory = databaseFactoryFfi;
 
   group('HashtagMediaNotifier', () {
     late _FakeTwitterClient mockClient;

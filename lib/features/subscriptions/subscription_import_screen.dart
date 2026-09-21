@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/client/twitter_client.dart';
 import '../../core/database/repository.dart';
+import '../../core/utils/app_logger.dart';
 
 class SubscriptionImportScreen extends StatefulWidget {
   const SubscriptionImportScreen({super.key});
@@ -25,6 +26,11 @@ class _SubscriptionImportScreenState extends State<SubscriptionImportScreen> {
       return;
     }
 
+    // Close any stream left over from a previous (failed) attempt before
+    // replacing it, otherwise the old controller leaks and the retry can throw
+    // "Cannot add event after closing" on a stream nobody listens to.
+    _streamController?.close();
+
     setState(() {
       _isImporting = true;
       _streamController = StreamController<int>();
@@ -39,19 +45,32 @@ class _SubscriptionImportScreenState extends State<SubscriptionImportScreen> {
         throw Exception('未找到该用户');
       }
 
-      final (following, _) = await client.fetchFollowing(user.id);
+      final (following, complete) = await client.fetchFollowing(user.id);
+      if (!mounted) {
+        _streamController?.close();
+        return;
+      }
       if (following.isNotEmpty) {
         await Repository.mergeSubscriptions(following);
         _streamController?.add(following.length);
       } else {
         _streamController?.add(0);
       }
-
-      _streamController?.close();
+      if (!complete) {
+        AppLogger.log('XFLOW: Import stopped early: follow list incomplete '
+            '(rate limited or truncated)');
+      }
     } catch (e, stackTrace) {
       debugPrint('Import error: $e\n$stackTrace');
-      _streamController?.addError(e, stackTrace);
+      final controller = _streamController;
+      if (controller != null && !controller.isClosed) {
+        controller.addError(e, stackTrace);
+      }
     } finally {
+      final controller = _streamController;
+      if (controller != null && !controller.isClosed) {
+        await controller.close();
+      }
       if (mounted) {
         setState(() {
           _isImporting = false;

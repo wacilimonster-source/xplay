@@ -43,12 +43,12 @@ void main() {
 
         await tester.pumpAndSettle();
 
-        expect(find.text('Playback & Feed'), findsOneWidget);
-        expect(find.text('Discovery & Diversity'), findsOneWidget);
+        expect(find.text('播放与信息流'), findsOneWidget);
+        expect(find.text('发现与多样性'), findsOneWidget);
 
         // Scroll to find Data & Storage
-        await tester.scrollUntilVisible(find.text('Data & Storage'), 100);
-        expect(find.text('Background Fetch'), findsOneWidget);
+        await tester.scrollUntilVisible(find.text('数据与存储'), 100);
+        expect(find.text('后台获取'), findsOneWidget);
       });
     });
 
@@ -65,12 +65,12 @@ void main() {
       );
 
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('Storage & Cache'), 100);
+      await tester.scrollUntilVisible(find.text('存储与缓存'), 100);
 
-      await tester.tap(find.text('Storage & Cache'));
+      await tester.tap(find.text('存储与缓存'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Local Media Cache'), findsOneWidget);
+      expect(find.text('本地媒体缓存'), findsOneWidget);
       expect(find.byType(Slider), findsAtLeastNWidgets(1));
     });
 
@@ -90,7 +90,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.text('View App Logs'), findsOneWidget);
+      expect(find.text('查看应用日志'), findsOneWidget);
       expect(find.text('Debug Timeline'), findsNothing);
     });
   });

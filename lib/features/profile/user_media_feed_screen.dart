@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/navigation/navigation_provider.dart';
+import '../../core/utils/lifecycle_provider.dart';
 import '../player/player_pool_provider.dart';
 import 'profile_provider.dart';
 import '../player/widgets/media_container.dart';
@@ -32,10 +33,21 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
   late int _currentIndex;
   bool _initialized = false;
   bool _poolUpdateQueued = false;
+  String? _currentTweetId;
+
+  /// Own scope in the shared player pool, so this screen and the home feed
+  /// cannot dispose each other's live players.
+  String get poolScope => 'user:${widget.screenName}';
+
+  /// Captured at init: touching `ref` inside `dispose()` is unsafe in Riverpod.
+  late final PlayerPoolNotifier _pool;
 
   @override
   void initState() {
     super.initState();
+    // Resolve the notifier up front: a lazily-initialised field would first be
+    // read inside dispose(), where touching `ref` is unsafe in Riverpod.
+    _pool = ref.read(playerPoolProvider.notifier);
     _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
     _pageController.addListener(_handleScroll);
@@ -45,6 +57,7 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
   void dispose() {
     _pageController.removeListener(_handleScroll);
     _pageController.dispose();
+    _pool.releaseScope(poolScope);
     super.dispose();
   }
 
@@ -54,21 +67,69 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
     if (page != _currentIndex) {
       setState(() {
         _currentIndex = page;
+        _currentTweetId = _tweetIdAt(page);
       });
       _managePool();
 
-      final feedAsync = ref.read(userMediaNotifierProvider(widget.screenName));
-      if (feedAsync.hasValue) {
-        final tweets = feedAsync.value!.tweets;
+      final state =
+          ref.read(userMediaNotifierProvider(widget.screenName)).value;
+      if (state != null) {
         final settings = ref.read(settingsProvider);
-        if (page >= tweets.length - settings.lazyLoadThreshold &&
-            !feedAsync.value!.isLoadingMore) {
+        if (page >= state.tweets.length - settings.lazyLoadThreshold &&
+            !state.isLoadingMore &&
+            state.hasMore) {
           ref
               .read(userMediaNotifierProvider(widget.screenName).notifier)
               .fetchMore();
         }
       }
     }
+  }
+
+  String? _tweetIdAt(int page) {
+    final state = ref.read(userMediaNotifierProvider(widget.screenName)).value;
+    if (state == null || page < 0 || page >= state.tweets.length) return null;
+    return state.tweets[page].id;
+  }
+
+  /// Index the full-screen feed should open at, or null when the tapped tweet
+  /// has not arrived yet (so the caller keeps waiting for the next page).
+  int? _resolveInitialIndex(List<Tweet> tweets, {required bool stillLoading}) {
+    if (widget.initialTweetId != null) {
+      final found =
+          tweets.indexWhere((t) => t.id == widget.initialTweetId);
+      if (found != -1) return found;
+      if (stillLoading) return null;
+    }
+    return widget.initialIndex.clamp(0, tweets.length - 1);
+  }
+
+  void _jumpTo(int index, List<Tweet> tweets) {
+    if (_pageController.hasClients) _pageController.jumpToPage(index);
+    setState(() {
+      _currentIndex = index;
+      _currentTweetId = index < tweets.length ? tweets[index].id : null;
+    });
+  }
+
+  /// Keeps the same tweet on screen when the list grew or was re-sorted.
+  void _reanchorIfNeeded(List<Tweet> tweets) {
+    final id = _currentTweetId;
+    if (id == null) return;
+    if (_currentIndex < tweets.length &&
+        tweets[_currentIndex].id == id) {
+      return;
+    }
+    final idx = tweets.indexWhere((t) => t.id == id);
+    if (idx == -1) {
+      _currentIndex = _currentIndex.clamp(0, tweets.length - 1);
+      _currentTweetId = _tweetIdAt(_currentIndex);
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _jumpTo(idx, tweets);
+    });
   }
 
   void _managePool() {
@@ -92,7 +153,7 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
           activeIds.add(tweet.id);
 
           if (tweet.isVideo && tweet.mediaUrls.isNotEmpty) {
-            pool.warmup(tweet.id, tweet.mediaUrls.first);
+            pool.warmup(tweet.id, tweet.mediaUrls.first, scope: poolScope);
           } else if (tweet.mediaUrls.isNotEmpty) {
             for (final url in tweet.mediaUrls) {
               precacheImage(NetworkImage(url), context);
@@ -100,43 +161,37 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
           }
         }
       }
-      pool.cleanupExcept(activeIds);
+      pool.cleanupExcept(poolScope, activeIds);
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final feedAsync = ref.watch(userMediaNotifierProvider(widget.screenName));
+    final appActive = ref.watch(lifecycleProvider) == AppLifecycle.resumed;
 
     // Listen for data arrival to handle initial index adjustment if list shifted
     ref.listen(userMediaNotifierProvider(widget.screenName), (prev, next) {
-      if (next.hasValue && !_initialized) {
-        final tweets = next.value!.tweets;
-        int targetIndex = widget.initialIndex;
-
-        if (widget.initialTweetId != null) {
-          final foundIndex =
-              tweets.indexWhere((t) => t.id == widget.initialTweetId);
-          if (foundIndex != -1) {
-            targetIndex = foundIndex;
-          }
-        }
-
-        if (targetIndex < tweets.length) {
-          if (_pageController.hasClients) {
-            _pageController.jumpToPage(targetIndex);
-          }
-          setState(() {
-            _currentIndex = targetIndex;
-          });
-        }
-        _initialized = true;
-      }
-
-      // Always manage pool when data changes
-      if (next.hasValue) {
+      final state = next.value;
+      if (state == null) return;
+      final tweets = state.tweets;
+      if (tweets.isEmpty) {
         _managePool();
+        return;
       }
+      if (!_initialized) {
+        final target = _resolveInitialIndex(tweets, stillLoading: state.isRefreshing);
+        if (target != null) {
+          _initialized = true;
+          _jumpTo(target, tweets);
+        }
+        // Not found yet: keep waiting for the fresh page instead of locking onto
+        // the cache-only list, which shifted every index once new tweets merged
+        // in — the user tapped post #40 and got a different one.
+      } else {
+        _reanchorIfNeeded(tweets);
+      }
+      _managePool();
     });
     return Scaffold(
       backgroundColor: Colors.black,
@@ -232,7 +287,8 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
                   return UserMediaFeedItem(
                     key: ValueKey('user_feed_${tweet.id}'),
                     tweet: tweet,
-                    isVisible: index == _currentIndex,
+                    poolScope: poolScope,
+                    isVisible: index == _currentIndex && appActive,
                     onPlaybackError: () {
                       if (index == _currentIndex && mounted) {
                         Future.delayed(
@@ -289,6 +345,7 @@ class UserMediaFeedItem extends StatelessWidget {
   final Tweet tweet;
   final bool isVisible;
   final bool autoFullscreen;
+  final String poolScope;
   final VoidCallback? onPlaybackError;
 
   const UserMediaFeedItem({
@@ -296,6 +353,7 @@ class UserMediaFeedItem extends StatelessWidget {
     required this.tweet,
     required this.isVisible,
     this.autoFullscreen = false,
+    this.poolScope = 'user',
     this.onPlaybackError,
   });
 
@@ -305,6 +363,7 @@ class UserMediaFeedItem extends StatelessWidget {
       tweet: tweet,
       isVisible: isVisible,
       autoFullscreen: autoFullscreen,
+      poolScope: poolScope,
       overlayBuilder: (context, onFullscreen, isFullscreen) => TweetTextOverlay(
         tweet: tweet,
         onFullscreen: onFullscreen,

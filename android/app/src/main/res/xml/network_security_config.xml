@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Replaces the previous blanket android:usesCleartextTraffic="true".
+
+  Default is HTTPS-only: every X/Twitter API host, the pbs.twimg.com /
+  video.twimg.com media CDNs and the GitHub release download all speak TLS.
+
+  The single exception is the third-party transaction-id generator that
+  lib/core/client/twitter_account.dart calls over plain HTTP
+  (Uri.http('x-client-transaction-id-generator.xyz', ...)).
+  Keep this list to exactly that one host.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">x-client-transaction-id-generator.xyz</domain>
+    </domain-config>
+</network-security-config>

@@ -54,6 +54,11 @@ class Subscription {
     return profileImageUrl!.replaceAll('_normal', '');
   }
 
+  /// The single write mapping for the `subscriptions` table.
+  ///
+  /// It must list every column: an insert with `ConflictAlgorithm.replace`
+  /// replaces the whole row, so omitting `profile_synced_at` here silently
+  /// reset it to NULL on every write.
   Map<String, dynamic> toMap() => {
         'id': id,
         'screen_name': screenName,
@@ -62,6 +67,7 @@ class Subscription {
         'description': description,
         'followers_count': followersCount,
         'following_count': followingCount,
+        'profile_synced_at': profileSyncedAt,
       };
 
   factory Subscription.fromMap(Map<String, dynamic> map) {

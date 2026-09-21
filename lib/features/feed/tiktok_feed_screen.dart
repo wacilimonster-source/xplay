@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -6,10 +7,12 @@ import 'feed_provider.dart';
 import '../player/widgets/media_container.dart';
 import '../../core/models/tweet.dart';
 import '../../core/database/repository.dart';
+import '../../core/utils/lifecycle_provider.dart';
 import '../settings/settings_screen.dart';
 import '../settings/settings_provider.dart';
 import '../auth/login_screen.dart';
 import '../../core/client/account_provider.dart';
+import '../../core/client/twitter_client.dart';
 import '../../core/navigation/navigation_provider.dart';
 import 'widgets/tweet_text_overlay.dart';
 
@@ -21,49 +24,129 @@ class TiktokFeedScreen extends ConsumerStatefulWidget {
 }
 
 class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
+  static const String poolScope = 'home';
+
   final PageController _pageController = PageController();
   int _currentIndex = 0;
   bool _poolUpdateQueued = false;
 
+  /// Id of the tweet currently on screen. Kept so that a background refresh that
+  /// reorders the list can move us back onto the same item instead of leaving us
+  /// watching something else.
+  String? _currentTweetId;
+
+  /// Marks a page as watched only once the user has actually *stopped* on it.
+  /// Marking on every `round()` change meant a fast fling through five posts
+  /// silently burned all five as "already seen" (and the ones really watched
+  /// were not marked), which with "避开已看" on makes content disappear.
+  Timer? _settleMarkTimer;
+
+  /// Pool notifier captured at init: Riverpod forbids touching `ref` from
+  /// `dispose()` (the widget element is already being torn down).
+  late final PlayerPoolNotifier _pool;
+
   @override
   void initState() {
     super.initState();
+    // Resolve the notifier up front: a lazily-initialised field would first be
+    // read inside dispose(), where touching `ref` is unsafe in Riverpod.
+    _pool = ref.read(playerPoolProvider.notifier);
     _pageController.addListener(_handleScroll);
   }
 
   @override
   void dispose() {
+    _settleMarkTimer?.cancel();
     _pageController.removeListener(_handleScroll);
     _pageController.dispose();
+    _pool.releaseScope(poolScope);
     super.dispose();
   }
 
   void _handleScroll() {
     if (!_pageController.hasClients) return;
-    final page = _pageController.page?.round() ?? 0;
+    final raw = _pageController.page;
+    if (raw == null) return;
+    final page = raw.round();
+
     if (page != _currentIndex) {
       setState(() {
         _currentIndex = page;
+        _currentTweetId = _tweetIdAt(page);
       });
+      ref.read(feedNotifierProvider.notifier).setActiveTweet(_currentTweetId);
       _managePool();
+      _scheduleWatchedMark(page);
 
       final feedAsync = ref.read(feedNotifierProvider);
-      if (feedAsync.hasValue) {
-        final tweets = feedAsync.value!.tweets;
-
-        if (page < tweets.length) {
-          final t = tweets[page];
-          Repository.markMediaAsPlayed(t.id);
-          Repository.markWatched(t.id, mediaKey: t.mediaKey);
-        }
-
+      final state = feedAsync.value;
+      if (state != null) {
         final settings = ref.read(settingsProvider);
-        if (page >= tweets.length - settings.lazyLoadThreshold &&
-            !feedAsync.value!.isRefreshing) {
+        if (page >= state.tweets.length - settings.lazyLoadThreshold &&
+            !state.isRefreshing &&
+            state.hasMore) {
           ref.read(feedNotifierProvider.notifier).fetchMore();
         }
       }
+      return;
     }
+
+    // Same index, but the swipe may have landed exactly on it: that is when the
+    // "settled" mark fires for a user who stops without changing page.
+    if (raw == raw.roundToDouble()) {
+      _scheduleWatchedMark(page);
+    }
+  }
+
+  String? _tweetIdAt(int page) {
+    final state = ref.read(feedNotifierProvider).value;
+    if (state == null || page < 0 || page >= state.tweets.length) return null;
+    return state.tweets[page].id;
+  }
+
+  void _scheduleWatchedMark(int page) {
+    _settleMarkTimer?.cancel();
+    final tweetId = _tweetIdAt(page);
+    if (tweetId == null) return;
+    _settleMarkTimer = Timer(const Duration(milliseconds: 450), () {
+      if (!mounted) return;
+      // Still on the same page? Then the user really saw it.
+      if (_pageController.hasClients &&
+          (_pageController.page?.round() ?? -1) == page &&
+          _tweetIdAt(page) == tweetId) {
+        Repository.markMediaAsPlayed(tweetId);
+        Repository.markWatched(tweetId,
+            mediaKey: _mediaKeyAt(page));
+      }
+    });
+  }
+
+  String? _mediaKeyAt(int page) {
+    final state = ref.read(feedNotifierProvider).value;
+    if (state == null || page < 0 || page >= state.tweets.length) return null;
+    return state.tweets[page].mediaKey;
+  }
+
+  /// Re-anchors the page after the list changed underneath the user.
+  void _reanchorIfNeeded(List<Tweet> tweets) {
+    final id = _currentTweetId;
+    if (id == null || tweets.isEmpty) return;
+    if (_currentIndex < tweets.length && tweets[_currentIndex].id == id) return;
+    final idx = tweets.indexWhere((t) => t.id == id);
+    if (idx == -1) {
+      // The watched item is gone (e.g. filtered out); adopt whatever is there now.
+      _currentIndex = _currentIndex.clamp(0, tweets.length - 1);
+      _currentTweetId = _tweetIdAt(_currentIndex);
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_pageController.hasClients) _pageController.jumpToPage(idx);
+      setState(() {
+        _currentIndex = idx;
+        _currentTweetId = id;
+      });
+    });
   }
 
   void _managePool() {
@@ -87,7 +170,7 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
             activeIds.add(tweet.id);
 
             if (tweet.isVideo && tweet.mediaUrls.isNotEmpty) {
-              pool.warmup(tweet.id, tweet.mediaUrls.first);
+              pool.warmup(tweet.id, tweet.mediaUrls.first, scope: poolScope);
             } else if (tweet.mediaUrls.isNotEmpty) {
               for (final url in tweet.mediaUrls) {
                 precacheImage(NetworkImage(url), context);
@@ -95,7 +178,7 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
             }
           }
         }
-        pool.cleanupExcept(activeIds);
+        pool.cleanupExcept(poolScope, activeIds);
       } catch (e) {
         debugPrint('XFLOW: Error in _managePool: $e');
       }
@@ -121,7 +204,6 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
               height: 24,
               width: 24,
             ),
-            const SizedBox(width: 12),
             const Text(
               "XPlay",
               style: TextStyle(fontWeight: FontWeight.bold),
@@ -145,6 +227,7 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
   Widget _buildMediaFeed() {
     final feedAsync = ref.watch(feedNotifierProvider);
     final nav = ref.watch(navigationProvider);
+    final appActive = ref.watch(lifecycleProvider) == AppLifecycle.resumed;
     final isScreenActive = nav.selectedUser == null &&
         nav.selectedHashtag == null &&
         nav.currentTab == MainTab.media;
@@ -152,6 +235,10 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
     return feedAsync.when(
       data: (state) {
         final tweets = state.tweets;
+        if (_currentTweetId == null && tweets.isNotEmpty) {
+          _currentTweetId = _tweetIdAt(_currentIndex);
+          ref.read(feedNotifierProvider.notifier).setActiveTweet(_currentTweetId);
+        }
         if (tweets.isEmpty) {
           if (state.isRefreshing) {
             return const Center(
@@ -165,8 +252,11 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
               ),
             );
           }
-          return _buildNoItemsState();
+          return _buildNoItemsState(state);
         }
+        // Keep the item under the user's eyes even though the pipeline reshuffled
+        // everything after it.
+        _reanchorIfNeeded(tweets);
         // Defer pool management past the build phase to avoid disposing
         // native players / mutating provider state during layout.
         Future.microtask(() {
@@ -181,8 +271,13 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
               itemBuilder: (context, index) {
                 final settings = ref.read(settingsProvider);
                 return TiktokFeedItem(
+                  // Without a key the element is reused positionally: after a
+                  // refresh the new tweet inherited the old one's error panel,
+                  // image page and retry counter.
+                  key: ValueKey('home_feed_${tweets[index].id}'),
                   tweet: tweets[index],
-                  isVisible: index == _currentIndex && isScreenActive,
+                  poolScope: poolScope,
+                  isVisible: index == _currentIndex && isScreenActive && appActive,
                   onPlaybackError: () {
                     if (index == _currentIndex && mounted) {
                       Future.delayed(
@@ -217,32 +312,57 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
     );
   }
 
-  Widget _buildNoItemsState() {
+  Widget _buildNoItemsState(FeedState state) {
     final account = ref.watch(accountProvider);
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            account == null ? '未找到媒体内容' : '未找到媒体内容，请稍后重试',
-            style: const TextStyle(color: Colors.white70),
-          ),
-          const SizedBox(height: 16),
-          if (account == null)
-            FilledButton.tonal(
-              onPressed: () => _goToLogin(),
-              child: const Text('登录 X'),
-            )
-          else
-            FilledButton.tonal(
-              onPressed: () {
-                ref.read(feedNotifierProvider.notifier).refresh();
-              },
-              child: const Text('重试'),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              account == null
+                  ? '未找到媒体内容'
+                  : (state.rateLimited
+                      ? '访问过于频繁，稍后会自动重试'
+                      : '未找到媒体内容，请稍后重试'),
+              style: const TextStyle(color: Colors.white70),
+              textAlign: TextAlign.center,
             ),
-        ],
+            if (account != null && state.rateLimited) ...[
+              const SizedBox(height: 6),
+              Text(
+                _cooldownHint(),
+                style: const TextStyle(color: Colors.white38, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            ],
+            const SizedBox(height: 16),
+            if (account == null)
+              FilledButton.tonal(
+                onPressed: () => _goToLogin(),
+                child: const Text('登录 X'),
+              )
+            else
+              FilledButton.tonal(
+                onPressed: () {
+                  ref.read(feedNotifierProvider.notifier).refresh();
+                },
+                child: const Text('重试'),
+              ),
+          ],
+        ),
       ),
     );
+  }
+
+  String _cooldownHint() {
+    final until = TwitterClient.cooldownUntilFor('SearchTimeline') ??
+        TwitterClient.cooldownUntilFor('HomeLatestTimeline');
+    if (until == null) return '请等待几分钟后再刷新';
+    final left = until.difference(DateTime.now());
+    final minutes = (left.inSeconds / 60).ceil();
+    return minutes <= 0 ? '即将自动恢复' : '约 $minutes 分钟后自动恢复';
   }
 
   Widget _buildErrorState(Object e) {
@@ -290,6 +410,7 @@ class TiktokFeedItem extends ConsumerWidget {
   final Tweet tweet;
   final bool isVisible;
   final bool autoFullscreen;
+  final String poolScope;
   final VoidCallback? onPlaybackError;
 
   const TiktokFeedItem({
@@ -297,6 +418,7 @@ class TiktokFeedItem extends ConsumerWidget {
     required this.tweet,
     required this.isVisible,
     this.autoFullscreen = false,
+    this.poolScope = 'home',
     this.onPlaybackError,
   });
 
@@ -311,6 +433,7 @@ class TiktokFeedItem extends ConsumerWidget {
             tweet: tweet,
             isVisible: isVisible,
             autoFullscreen: autoFullscreen,
+            poolScope: poolScope,
             overlayBuilder: (context, onFullscreen, isFullscreen) =>
                 TweetTextOverlay(
               tweet: tweet,
@@ -326,23 +449,20 @@ class TiktokFeedItem extends ConsumerWidget {
   }
 }
 
-class DiscoveryDebugOverlay extends StatelessWidget {
+class DiscoveryDebugOverlay extends ConsumerWidget {
   final Tweet tweet;
   const DiscoveryDebugOverlay({super.key, required this.tweet});
 
-  Future<(int, int)> _fetchDebugStats() async {
-    final mediaCount = await Repository.getMediaPlayedCount(tweet.id);
-    final userCount = await Repository.getUserPlayedCount(tweet.userHandle);
-    return (mediaCount, userCount);
-  }
-
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Positioned(
       top: 100,
       left: 10,
       child: FutureBuilder<(int, int)>(
-        future: _fetchDebugStats(),
+        future: Future.wait([
+          Repository.getMediaPlayedCount(tweet.id),
+          Repository.getUserPlayedCount(tweet.userHandle),
+        ]).then((v) => (v[0], v[1])),
         builder: (context, snapshot) {
           final stats = snapshot.data ?? (0, 0);
           return Card(

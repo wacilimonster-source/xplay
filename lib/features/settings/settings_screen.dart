@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'settings_provider.dart';
 import '../../core/client/account_provider.dart';
+import '../../core/client/twitter_client.dart';
 import '../../core/database/repository.dart';
 import '../../core/utils/media_cache_manager.dart';
 import '../../core/services/update_service.dart';
@@ -33,14 +34,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _loadVersion() async {
-    final info = await PackageInfo.fromPlatform();
-    if (mounted) setState(() => _appVersion = info.version);
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) setState(() => _appVersion = info.version);
+    } catch (e) {
+      // An unavailable package_info channel used to escape as an unhandled
+      // async error (and took the settings page down with it).
+      debugPrint('XFLOW: version lookup failed: $e');
+    }
   }
 
   Future<void> _loadStats() async {
-    final count = await Repository.getCachedMediaCount();
-    final sizeBytes = await CustomMediaCacheManager.enforceLimit(
-        ref.read(settingsProvider).mediaCacheSizeMB);
+    int count = 0;
+    int sizeBytes = 0;
+    try {
+      count = await Repository.getCachedMediaCount();
+    } catch (e) {
+      debugPrint('XFLOW: cache count unavailable: $e');
+    }
+    try {
+      sizeBytes = await CustomMediaCacheManager.getCacheSize();
+    } catch (e) {
+      debugPrint('XFLOW: cache size unavailable: $e');
+    }
     if (mounted) {
       setState(() {
         _metadataCount = count;
@@ -110,14 +126,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 title: '存储与缓存',
                 subtitle:
                     '已用 ${_cacheSizeMB.toStringAsFixed(1)} MB • $_metadataCount 条',
-                onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (c) => StorageSettingsPage(
-                              metadataCount: _metadataCount,
-                              cacheSizeMB: _cacheSizeMB,
-                              onRefresh: _loadStats,
-                            ))),
+                // 统计状态由子页面自己维护，返回时再拉一次，避免把旧数字当参数推过去。
+                onTap: () async {
+                  await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (c) => const StorageSettingsPage()));
+                  if (mounted) _loadStats();
+                },
               ),
             ],
           ),
@@ -185,6 +201,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       MaterialPageRoute(builder: (c) => const LoginScreen()),
                     );
                     if (success == true) {
+                      // 换账号后旧的冷却与轮换游标属于上一个账号，必须清零。
+                      TwitterClient.clearCooldowns();
+                      TwitterClient.resetSubscriptionRotation();
                       ref.invalidate(feedNotifierProvider);
                       ref.invalidate(subscriptionListProvider);
                     }
@@ -193,7 +212,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   final navigator = Navigator.of(context);
                   await ref.read(accountProvider.notifier).logout();
                   if (!mounted) return;
+                  TwitterClient.clearCooldowns();
+                  TwitterClient.resetSubscriptionRotation();
                   ref.invalidate(feedNotifierProvider);
+                  ref.invalidate(subscriptionListProvider);
                   navigator.pop();
                 },
               ),
@@ -205,27 +227,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _checkForUpdate(BuildContext context) async {
-    showDialog<void>(
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    // 自己持有加载框路由：barrierDismissible=false 的对话框一旦漏掉 pop，
+    // 整个页面就再也点不动了，所以放到 finally 里兜底。
+    final loadingRoute = DialogRoute<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
+    navigator.push(loadingRoute);
 
-    final updateInfo = await UpdateService.checkForUpdate();
-    if (!context.mounted) return;
-    Navigator.of(context).pop();
-
-    if (updateInfo == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('当前已是最新版本'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      return;
+    final UpdateCheckResult result;
+    try {
+      result = await UpdateService.checkDetailed();
+    } finally {
+      if (loadingRoute.isActive && navigator.canPop()) {
+        navigator.removeRoute(loadingRoute);
+      }
     }
 
-    await showUpdateDialog(context, updateInfo);
+    if (!context.mounted) return;
+    switch (result.status) {
+      case UpdateCheckStatus.updateAvailable:
+        await showUpdateDialog(context, result.updateInfo!);
+      case UpdateCheckStatus.upToDate:
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('当前已是最新版本'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      case UpdateCheckStatus.networkError:
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('检查失败：请检查网络（${result.failureReason}）'),
+            backgroundColor: Colors.deepOrange,
+          ),
+        );
+      case UpdateCheckStatus.error:
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('检查失败：${result.failureReason}'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+    }
   }
 
   static Future<void> showUpdateDialog(
@@ -625,51 +672,147 @@ class SyncSettingsPage extends ConsumerWidget {
   }
 }
 
-class StorageSettingsPage extends ConsumerWidget {
-  final int metadataCount;
-  final double cacheSizeMB;
-  final VoidCallback onRefresh;
-
-  const StorageSettingsPage({
-    super.key,
-    required this.metadataCount,
-    required this.cacheSizeMB,
-    required this.onRefresh,
-  });
+class StorageSettingsPage extends ConsumerStatefulWidget {
+  const StorageSettingsPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<StorageSettingsPage> createState() =>
+      _StorageSettingsPageState();
+}
+
+class _StorageSettingsPageState extends ConsumerState<StorageSettingsPage> {
+  int _metadataCount = 0;
+  double _cacheSizeMB = 0;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  /// 统计数字由本页持有。以前是父页面 push 进来的构造参数，
+  /// 清完缓存后父页面 setState 也刷新不到已经打开的子页面。
+  Future<void> _reload() async {
+    final count = await Repository.getCachedMediaCount();
+    final sizeBytes = await CustomMediaCacheManager.getCacheSize();
+    if (!mounted) return;
+    setState(() {
+      _metadataCount = count;
+      _cacheSizeMB = sizeBytes / (1024 * 1024);
+    });
+  }
+
+  Future<void> _clearCache() async {
+    if (_busy) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final clearedMB = _cacheSizeMB;
+    setState(() => _busy = true);
+    await CustomMediaCacheManager.clearCache();
+    await _reload();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    messenger.showSnackBar(SnackBar(
+      content: Text('已清除 ${clearedMB.toStringAsFixed(1)} MB'),
+    ));
+  }
+
+  /// 拖动结束时才真正按新上限清理文件。
+  Future<void> _applyCacheLimit(int limitMB) async {
+    if (_busy) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final beforeMB = _cacheSizeMB;
+    setState(() => _busy = true);
+    final afterBytes = await CustomMediaCacheManager.enforceLimit(limitMB);
+    await _reload();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    final freedMB = beforeMB - afterBytes / (1024 * 1024);
+    messenger.showSnackBar(SnackBar(
+      content: Text(freedMB > 0.05
+          ? '缓存上限已调整为 $limitMB MB，已清除 ${freedMB.toStringAsFixed(1)} MB'
+          : '缓存未超出 $limitMB MB 上限'),
+    ));
+  }
+
+  Future<void> _resetWatchedRecords() async {
+    if (_busy) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('重置已看记录'),
+        content: const Text(
+            '将清空「已看过」标记和播放计数，看过的内容会重新出现在信息流里。\n'
+            '数据库中的媒体记录和已下载文件不受影响。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('重置'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!mounted) return;
+    setState(() => _busy = true);
+
+    // 先取数量，purgeSeenMetadata() 会连 watched_media 一起清空。
+    final watchedCount = await Repository.getWatchedCount();
+    await Repository.purgeSeenMetadata();
+    await _reload();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    messenger.showSnackBar(SnackBar(
+      content: Text('已清除 $watchedCount 条记录，看过的内容会重新出现'),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
     final notifier = ref.read(settingsProvider.notifier);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('存储与缓存')),
+      appBar: AppBar(
+        title: const Text('存储与缓存'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: '重新统计',
+            onPressed: _reload,
+          ),
+        ],
+      ),
       body: ListView(
         children: [
+          if (_busy) const LinearProgressIndicator(minHeight: 2),
           ListTile(
             title: const Text('本地媒体缓存'),
             subtitle: Text(
-                '已用 ${cacheSizeMB.toStringAsFixed(1)} MB / 限制 ${settings.mediaCacheSizeMB} MB'),
+                '已用 ${_cacheSizeMB.toStringAsFixed(1)} MB / 限制 ${settings.mediaCacheSizeMB} MB • $_metadataCount 条元数据'),
           ),
           Slider(
-            value: settings.mediaCacheSizeMB.toDouble(),
+            value: settings.mediaCacheSizeMB.toDouble().clamp(100.0, 2000.0),
             min: 100,
             max: 2000,
             divisions: 19,
             label: '${settings.mediaCacheSizeMB} MB',
-            onChanged: (v) {
-              notifier.updateMediaCacheSize(v.round());
-              CustomMediaCacheManager.enforceLimit(v.round());
-              onRefresh();
-            },
+            // 拖动过程中只写设置值：以前每跨一档就 enforceLimit() 真删一次文件，
+            // 一次拖动能连带删掉十几档，而且没 await 导致统计互相打架。
+            onChanged: (v) => notifier.updateMediaCacheSize(v.round()),
+            onChangeEnd: (v) => _applyCacheLimit(v.round()),
           ),
           ListTile(
             leading: const Icon(Icons.cleaning_services, color: Colors.orange),
             title: const Text('清除媒体缓存', style: TextStyle(color: Colors.orange)),
-            onTap: () async {
-              await CustomMediaCacheManager.clearCache();
-              onRefresh();
-            },
+            enabled: !_busy,
+            onTap: _clearCache,
           ),
           const Divider(),
           _SliderSetting(
@@ -682,14 +825,13 @@ class StorageSettingsPage extends ConsumerWidget {
             onChanged: (v) => notifier.updatePruneThreshold(v.toInt()),
           ),
           ListTile(
-            leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-            title: const Text('清除已看元数据',
+            leading: const Icon(Icons.history_toggle_off,
+                color: Colors.redAccent),
+            title: const Text('重置已看记录',
                 style: TextStyle(color: Colors.redAccent)),
-            subtitle: const Text('删除已观看视频的数据库记录'),
-            onTap: () async {
-              await Repository.purgeSeenMetadata();
-              onRefresh();
-            },
+            subtitle: const Text('让看过的内容重新出现'),
+            enabled: !_busy,
+            onTap: _resetWatchedRecords,
           ),
         ],
       ),
@@ -720,11 +862,12 @@ class SubscriptionSettingsPage extends ConsumerWidget {
             title: const Text('清空所有订阅', style: TextStyle(color: Colors.orange)),
             onTap: () async {
               await Repository.clearSubscriptions();
+              if (!context.mounted) return;
               ref.invalidate(feedNotifierProvider);
-              if (context.mounted) {
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(const SnackBar(content: Text('已清空')));
-              }
+              // 订阅列表页有自己的 provider，不一起失效的话页面还是旧数据。
+              ref.invalidate(subscriptionListProvider);
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(const SnackBar(content: Text('已清空')));
             },
           ),
         ],

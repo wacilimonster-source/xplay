@@ -43,6 +43,15 @@ class QueryIdResolver {
   static final Map<String, String> _ids = Map.from(_bundled);
   static bool _loaded = false;
 
+  static const String _prefsKey = 'xflow_query_ids';
+
+  /// Ops whose id came from a live WebView capture or the remote override, and
+  /// when that happened. Only these are persisted: freezing the *bundled*
+  /// defaults on disk used to make every shipped id update useless, because
+  /// the stale stored value kept winning after an app upgrade.
+  static final Map<String, DateTime> _capturedAt = {};
+  static const Duration _capturedValidity = Duration(days: 14);
+
   /// Optional remote JSON override URL (a map of operation -> queryId).
   /// Leave null to disable.
   static String? remoteUrl;
@@ -52,17 +61,39 @@ class QueryIdResolver {
     _loaded = true;
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString('xflow_query_ids');
+      final raw = prefs.getString(_prefsKey);
       if (raw != null && raw.isNotEmpty) {
-        final map = jsonDecode(raw) as Map<String, dynamic>;
-        var count = 0;
-        map.forEach((k, v) {
-          if (v is String && v.isNotEmpty) {
-            _ids[k] = v;
+        final decoded = jsonDecode(raw);
+        if (decoded is Map<String, dynamic> &&
+            decoded['captured'] is Map<String, dynamic>) {
+          final entries = decoded['captured'] as Map<String, dynamic>;
+          final stamps = decoded['capturedAt'] is Map<String, dynamic>
+              ? decoded['capturedAt'] as Map<String, dynamic>
+              : const <String, dynamic>{};
+          final now = DateTime.now();
+          var count = 0;
+          entries.forEach((op, value) {
+            if (value is! String || value.isEmpty) return;
+            final when = DateTime.tryParse(stamps[op]?.toString() ?? '');
+            if (when == null || now.difference(when) > _capturedValidity) {
+              AppLogger.log(
+                  'XFLOW: dropped stale captured query id for $op (seen $when)');
+              return;
+            }
+            _ids[op] = value;
+            _capturedAt[op] = when;
             count++;
-          }
-        });
-        AppLogger.log('XFLOW: Loaded $count persisted query IDs from storage.');
+          });
+          AppLogger.log(
+              'XFLOW: Loaded $count captured query IDs from storage (fresh ones win over bundled defaults).');
+        } else {
+          // Legacy flat format: it also contained never-verified bundled
+          // defaults, which is exactly what blocked shipped updates. Discard it
+          // and let capture/remote repopulate.
+          AppLogger.log(
+              'XFLOW: Discarding legacy persisted query id blob; using bundled ids.');
+          prefs.remove(_prefsKey);
+        }
       }
     } catch (e) {
       AppLogger.log('XFLOW: Failed to load persisted query IDs: $e');
@@ -72,6 +103,19 @@ class QueryIdResolver {
     }
   }
 
+  /// Records ids that were observed live (WebView capture or remote override).
+  /// Only these are persisted, and they expire — see [_capturedAt].
+  static Future<void> _applyCaptured(Map<String, String> ids) async {
+    if (ids.isEmpty) return;
+    final now = DateTime.now();
+    ids.forEach((op, id) {
+      if (id.isEmpty) return;
+      _ids[op] = id;
+      _capturedAt[op] = now;
+    });
+    await _persist();
+  }
+
   static Future<void> _fetchRemote() async {
     try {
       final resp = await http
@@ -79,15 +123,13 @@ class QueryIdResolver {
           .timeout(const Duration(seconds: 10));
       if (resp.statusCode == 200) {
         final map = jsonDecode(resp.body) as Map<String, dynamic>;
-        var count = 0;
+        final ids = <String, String>{};
         map.forEach((k, v) {
-          if (v is String && v.isNotEmpty) {
-            _ids[k] = v;
-            count++;
-          }
+          if (v is String && v.isNotEmpty) ids[k] = v;
         });
-        AppLogger.log('XFLOW: Merged $count query IDs from remote source.');
-        await _persist();
+        await _applyCaptured(ids);
+        AppLogger.log(
+            'XFLOW: Merged ${ids.length} query IDs from remote source.');
       }
     } catch (e) {
       AppLogger.log('XFLOW: Remote query-id fetch failed: $e');
@@ -155,8 +197,18 @@ class QueryIdResolver {
 
   /// Returns the GraphQL path for [op], e.g. `/graphql/<id>/SearchTimeline`.
   /// Falls back to [fallbackOp] then the bundled default if unknown.
+  ///
+  /// Throws instead of building `/graphql/null/Op`: an unresolved operation used
+  /// to produce a URL that "worked" and quietly 404'd, so the real cause (no
+  /// known query id) never surfaced. Callers already catch and report empty
+  /// results, and no operation registered in [_bundled] can hit this.
   static String pathFor(String op, [String? fallbackOp]) {
-    final id = _ids[op] ?? (fallbackOp != null ? _ids[fallbackOp] : null) ?? _bundled[op];
+    final id = _ids[op] ??
+        (fallbackOp != null ? _ids[fallbackOp] : null) ??
+        _bundled[op];
+    if (id == null) {
+      throw StateError('No GraphQL query id for operation "$op"');
+    }
     return '/graphql/$id/$op';
   }
 
@@ -164,8 +216,11 @@ class QueryIdResolver {
   /// Used to retry on HTTP 404 without waiting for a live capture.
   static List<String> candidatePaths(String op) {
     final primary = _ids[op] ?? _bundled[op];
+    if (primary == null) {
+      throw StateError('No GraphQL query id for operation "$op"');
+    }
     final list = <String>['/graphql/$primary/$op'];
-    for (final alt in (_alternates[op] ?? [])) {
+    for (final alt in (_alternates[op] ?? const <String>[])) {
       if (alt != primary) list.add('/graphql/$alt/$op');
     }
     return list;
@@ -178,7 +233,17 @@ class QueryIdResolver {
   static Future<void> _persist() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('xflow_query_ids', jsonEncode(_ids));
+      final captured = <String, dynamic>{};
+      final stamps = <String, dynamic>{};
+      _capturedAt.forEach((op, at) {
+        final id = _ids[op];
+        if (id != null && id.isNotEmpty) {
+          captured[op] = id;
+          stamps[op] = at.toIso8601String();
+        }
+      });
+      await prefs.setString(
+          _prefsKey, jsonEncode({'captured': captured, 'capturedAt': stamps}));
     } catch (_) {}
   }
 
@@ -241,8 +306,7 @@ class QueryIdResolver {
       await Future.delayed(const Duration(seconds: 3));
       final map = await readCaptured(controller);
       if (map.isNotEmpty) {
-        _ids.addAll(map);
-        await _persist();
+        await _applyCaptured(map);
         AppLogger.log('XFLOW: Captured ${map.length} live query IDs: '
             '${map.keys.join(', ')}');
       } else {

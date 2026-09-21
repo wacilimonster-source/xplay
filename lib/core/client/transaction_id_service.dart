@@ -101,14 +101,27 @@ class TransactionIdWebViewHost extends ConsumerStatefulWidget {
 
 class _TransactionIdWebViewHostState
     extends ConsumerState<TransactionIdWebViewHost> {
-  late final WebViewController _controller;
+  /// Null when no WebView platform is available (widget tests, or a device
+  /// without a WebView provider). Building the controller in that state threw an
+  /// assertion that took the whole app down; now the rest of the UI works and
+  /// only the transaction-id / query-id capture is unavailable.
+  WebViewController? _controllerOrNull;
+  WebViewController get _controller => _controllerOrNull!;
   String? _loadedAccountId;
   bool _captureStarted = false;
 
   @override
   void initState() {
     super.initState();
-    _controller = WebViewController()
+    try {
+      _controllerOrNull = _buildController();
+      TransactionIdService.instance.attachController(_controllerOrNull!);
+    } catch (e) {
+      AppLogger.log('TXID WebView unavailable on this platform: $e');
+    }
+  }
+
+  WebViewController _buildController() => WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setUserAgent(xMobileUserAgent)
       ..setNavigationDelegate(
@@ -139,8 +152,6 @@ class _TransactionIdWebViewHostState
           },
         ),
       );
-    TransactionIdService.instance.attachController(_controller);
-  }
 
   /// Once the logged-in WebView is ready, hook its network layer and walk
   /// through a few pages so x.com generates the real (current) GraphQL query
@@ -194,6 +205,11 @@ class _TransactionIdWebViewHostState
   @override
   Widget build(BuildContext context) {
     final account = ref.watch(accountProvider);
+    if (_controllerOrNull == null) {
+      // WebView is unavailable here; skip the capture quietly instead of
+      // throwing during the first frame.
+      return const SizedBox.shrink();
+    }
     if (account == null) {
       TransactionIdService.instance.markReady(false);
       _loadedAccountId = null;

@@ -1,9 +1,10 @@
 {
-  "version": "0.1.31",
-  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/0.1.31/app-release.apk",
+  "version": "0.1.32",
+  "build": 32,
+  "apkUrl": "https://github.com/wacilimonster-source/xplay/releases/download/v0.1.32/app-release.apk",
   "apkUrls": [
-    "https://github.com/wacilimonster-source/xplay/releases/download/0.1.31/app-release.apk"
+    "https://github.com/wacilimonster-source/xplay/releases/download/v0.1.32/app-release.apk"
   ],
-  "notes": "修复：信息流内容过滤逻辑反转（repository SQL仍用NOT排除选中类型导致本地缓存绕过过滤）；修复全新安装缺media_width等列导致缓存失效；修复SQL双引号字面量在严格SQLite下报错；修正设置页过滤说明文案。",
-  "publishedAt": "2026-08-26"
+  "notes": "修复：切换后台/锁屏视频继续出声；话题流与用户页视频突然黑屏转圈（播放器池互踩）；竖屏视频全屏被强制横屏；点屏幕无法暂停、出错一次后长期显示播放失败；改任意设置会清空首页并换掉正在看的那条；快速连滑把没看过的内容标成已看；订阅流为空时偷偷混入全站推荐且无视「只要订阅」；话题流不遵守内容类型过滤；翻页偶尔重复同一条。\n\n修复：推文时间解析恒为 null 导致本地缓存每次被清空（现在缓存真正累积，冷启动更快、更省流量）；429 限流没有退避（「账户冷却时间」此前是空设置，现在生效并在界面提示）；点赞与喜欢数不落地；缓存清理误删无时间记录的行。\n\n修复：重新登录后重启会用回最旧账号（改为单账号事务替换）；打开用户主页会产生重复订阅行（改为按 handle 唯一 + 迁移去重）；升级自带的新 GraphQL ID 被旧持久化值压住（改为只持久化线上捕获值并 14 天过期）；登录取账号身份改为向会话本身确认。\n\n其他：设置页缓存统计与清理口径修正（不再边拖滑条边删文件、清理后数字即时更新并提示）；「清除已看记录」改为真正清空已看名单；检查更新区分网络失败与已是最新，并修复下载直链缺 v 前缀导致的 404；启动失败不再黑屏；应用日志页自动刷新；Android 明文流量收敛为白名单、补安装器包可见性声明。全新安装默认内容类型为「不过滤」，抓取策略统一为按时间。",
+  "publishedAt": "2026-09-22"
 }

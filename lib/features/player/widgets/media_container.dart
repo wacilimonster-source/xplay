@@ -7,8 +7,9 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/models/tweet.dart';
-import '../../../core/utils/media_cache_manager.dart';
 import '../../../core/utils/app_logger.dart';
+import '../../../core/utils/lifecycle_provider.dart';
+import '../../../core/utils/media_cache_manager.dart';
 import '../../feed/widgets/text_tweet_card.dart';
 import '../player_pool_provider.dart';
 import '../../settings/settings_provider.dart';
@@ -16,12 +17,19 @@ import '../../feed/feed_provider.dart';
 
 class TiktokMediaContainer extends ConsumerStatefulWidget {
   final Tweet tweet;
+
+  /// True when this item is the one currently on screen *and* its screen is the
+  /// active one (the feed screens fold "app is foregrounded" into this too).
   final bool isVisible;
   final bool autoFullscreen;
   final Widget Function(
           BuildContext context, VoidCallback? onFullscreen, bool isFullscreen)?
       overlayBuilder;
   final VoidCallback? onPlaybackError;
+
+  /// Which feed screen owns this item's player, so a clean-up on one screen
+  /// cannot dispose another screen's live player.
+  final String poolScope;
 
   const TiktokMediaContainer({
     super.key,
@@ -30,6 +38,7 @@ class TiktokMediaContainer extends ConsumerStatefulWidget {
     this.autoFullscreen = false,
     this.overlayBuilder,
     this.onPlaybackError,
+    this.poolScope = 'home',
   });
 
   @override
@@ -44,18 +53,29 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
   bool _isAutoFullscreenDone = false;
   StreamSubscription? _errorSubscription;
   StreamSubscription? _completedSubscription;
+  StreamSubscription? _positionSubscription;
   StreamSubscription? _durationSubscription;
   PlayerInstance? _subscribedInstance;
   bool _resumeRestored = false;
+
+  /// Set when the user taps to pause; cleared when a new item becomes visible.
+  bool _userPaused = false;
+
+  /// Last playback error. Kept in state (not in a `StreamBuilder` snapshot) so
+  /// it disappears once playback recovers: the old code showed the *first*
+  /// error forever, so a retried video kept displaying "播放失败".
+  String? _playbackError;
 
   static const String _resumePrefix = 'xplay_resume_pos_';
 
   void _clearSubscriptions() {
     _errorSubscription?.cancel();
     _completedSubscription?.cancel();
+    _positionSubscription?.cancel();
     _durationSubscription?.cancel();
     _errorSubscription = null;
     _completedSubscription = null;
+    _positionSubscription = null;
     _durationSubscription = null;
     _subscribedInstance = null;
   }
@@ -64,13 +84,29 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
     if (identical(_subscribedInstance, instance)) return;
     _errorSubscription?.cancel();
     _completedSubscription?.cancel();
+    _positionSubscription?.cancel();
     _durationSubscription?.cancel();
     _errorSubscription = instance.player.stream.error.listen(_handleError);
     _completedSubscription =
         instance.player.stream.completed.listen((completed) {
       if (completed) _handleCompleted();
     });
+    // Progressing means the stream is healthy: drop the stale error and give the
+    // retry budget back. Otherwise one early hiccup marked the item as failed
+    // for the rest of its life and the next error skipped without retrying.
+    _positionSubscription = instance.player.stream.position.listen((pos) {
+      if (pos > Duration.zero &&
+          (_playbackError != null || _retryCount != 0) &&
+          mounted) {
+        setState(() {
+          _playbackError = null;
+          _retryCount = 0;
+        });
+      }
+    });
     _resumeRestored = false;
+    _playbackError = null;
+    _retryCount = 0;
     _durationSubscription = instance.player.stream.duration.listen((d) {
       if (_resumeRestored || d <= Duration.zero) return;
       _resumeRestored = true;
@@ -87,8 +123,7 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
       if (dur > Duration.zero &&
           pos > const Duration(seconds: 5) &&
           dur - pos > const Duration(seconds: 3)) {
-        prefs.setInt(
-            '$_resumePrefix${widget.tweet.id}', pos.inMilliseconds);
+        prefs.setInt('$_resumePrefix${widget.tweet.id}', pos.inMilliseconds);
       } else {
         prefs.remove('$_resumePrefix${widget.tweet.id}');
       }
@@ -120,6 +155,16 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
     super.didUpdateWidget(oldWidget);
     if (!oldWidget.isVisible && widget.isVisible) {
       _isAutoFullscreenDone = false;
+      _userPaused = false;
+    }
+    if (oldWidget.tweet.id != widget.tweet.id) {
+      // This element is showing a different tweet (no key on the widget): never
+      // inherit the previous item's error panel, page index or pause state.
+      _imageIndex = 0;
+      _retryCount = 0;
+      _playbackError = null;
+      _userPaused = false;
+      _resumeRestored = false;
     }
   }
 
@@ -128,10 +173,36 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
     if (_subscribedInstance != null) {
       _savePosition(_subscribedInstance!);
     }
-    _errorSubscription?.cancel();
-    _completedSubscription?.cancel();
-    _durationSubscription?.cancel();
+    _clearSubscriptions();
     super.dispose();
+  }
+
+  /// Starts or stops playback *outside* of `build()`, and only when the desired
+  /// state actually differs from the player's.
+  ///
+  /// The old code called `play()`/`pause()`/`_savePosition()` inline while
+  /// building: every rebuild (pool change, tab switch, like) resumed a video the
+  /// user had paused, and every off-screen item wrote to SharedPreferences per
+  /// frame — visible as stutter while scrolling.
+  void _syncPlayback(bool appActive) {
+    final pool = ref.read(playerPoolProvider);
+    final instance = pool[widget.tweet.id];
+    if (instance == null) return;
+
+    final shouldPlay = widget.isVisible &&
+        appActive &&
+        !_userPaused &&
+        ref.read(settingsProvider).autoplay &&
+        _playbackError == null;
+    final isPlaying = instance.player.state.playing;
+    if (shouldPlay == isPlaying) return;
+
+    if (shouldPlay) {
+      instance.player.play();
+    } else {
+      _savePosition(instance);
+      instance.player.pause();
+    }
   }
 
   void _handleCompleted() async {
@@ -141,6 +212,7 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
     final state = _videoKey.currentState;
     if (state != null && state.isFullscreen()) {
       await state.exitFullscreen();
+      if (!mounted) return;
     }
 
     final settings = ref.read(settingsProvider);
@@ -162,35 +234,73 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
   }
 
   void _handleError(dynamic error) async {
+    if (!mounted) return;
     final settings = ref.read(settingsProvider);
 
     // Exit fullscreen on error
     final state = _videoKey.currentState;
     if (state != null && state.isFullscreen()) {
       await state.exitFullscreen();
+      if (!mounted) return;
     }
 
     if (_retryCount < settings.playbackRetryLimit) {
       _retryCount++;
       AppLogger.log(
           'XFLOW: Video playback error. Retrying ($_retryCount/${settings.playbackRetryLimit})... Error: $error');
+      if (mounted) setState(() => _playbackError = null);
 
       final pool = ref.read(playerPoolProvider);
       final instance = pool[widget.tweet.id];
       if (instance != null) {
         // Re-open media to retry
-        instance.player
-            .open(Media(widget.tweet.mediaUrls.first), play: widget.isVisible);
+        await instance.player.open(Media(widget.tweet.mediaUrls.first),
+            play: widget.isVisible);
       }
+      return;
+    }
+
+    AppLogger.log('XFLOW: Video playback failed after retry. Skipping item.');
+    if (!mounted) return;
+    setState(() => _playbackError = error.toString());
+    widget.onPlaybackError?.call();
+  }
+
+  Future<void> _toggleUserPause(PlayerInstance instance) async {
+    final playing = instance.player.state.playing;
+    if (!mounted) return;
+    setState(() => _userPaused = playing);
+    if (playing) {
+      await instance.player.pause();
     } else {
-      AppLogger.log('XFLOW: Video playback failed after retry. Skipping item.');
-      widget.onPlaybackError?.call();
+      if (mounted) setState(() => _playbackError = null);
+      await instance.player.play();
+    }
+  }
+
+  /// Fullscreen toggle for the button/overlay path. Orientation itself is
+  /// applied by the `Video.onEnterFullscreen` handler, which media_kit runs
+  /// *after* pushing the fullscreen route — the default implementation there
+  /// forces landscape, which is why portrait videos used to flip sideways.
+  Future<void> _enterFullscreen(PlayerInstance instance) async {
+    final state = _videoKey.currentState;
+    if (state == null) return;
+    if (state.isFullscreen()) {
+      await state.exitFullscreen();
+    } else {
+      await state.enterFullscreen();
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Watching (not `ref.listen` outside build) keeps this unconditional, and
+    // lets a background/lock transition pause playback: nothing used to stop the
+    // audio when the app left the foreground.
+    final appActive = ref.watch(lifecycleProvider) == AppLifecycle.resumed;
+
     if (widget.tweet.mediaUrls.isEmpty) {
+      _scheduleSync(appActive);
       return Stack(
         children: [
           TextTweetCard(text: widget.tweet.text),
@@ -202,6 +312,7 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
     }
 
     if (!widget.tweet.isVideo) {
+      _scheduleSync(appActive);
       return Stack(
         children: [
           _buildImageGallery(),
@@ -212,7 +323,8 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
               right: 0,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(widget.tweet.mediaUrls.length, (index) {
+                children:
+                    List.generate(widget.tweet.mediaUrls.length, (index) {
                   return Container(
                     width: 6,
                     height: 6,
@@ -235,10 +347,21 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
     }
 
     final pool = ref.watch(playerPoolProvider);
-    final instance = pool[widget.tweet.id];
+    var instance = pool[widget.tweet.id];
 
     if (instance == null) {
       _clearSubscriptions();
+      // The pool released this player (another screen's clean-up, an LRU
+      // eviction, or scrolling back into range). Re-create it after the frame
+      // instead of spinning forever with no way out.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ref.read(playerPoolProvider.notifier).warmup(
+              widget.tweet.id,
+              widget.tweet.mediaUrls.first,
+              scope: widget.poolScope,
+            );
+      });
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -247,239 +370,196 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
     // Re-bind event subscriptions whenever the pool hands out a new instance
     // for this tweet id (the old one was disposed by the pool).
     _bindSubscriptions(instance);
+    _scheduleSync(appActive);
 
-    if (widget.isVisible) {
-      if (settings.autoplay) {
-        instance.player.play();
-      }
-    } else {
-      _savePosition(instance);
-      instance.player.pause();
-    }
-    return PopScope(
-      canPop: true,
-      onPopInvokedWithResult: (didPop, result) async {
+    if (widget.isVisible &&
+        widget.autoFullscreen &&
+        !_isAutoFullscreenDone) {
+      _isAutoFullscreenDone = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
         final state = _videoKey.currentState;
-        if (state != null && state.isFullscreen()) {
-          await state.exitFullscreen();
+        if (state != null && !state.isFullscreen()) {
+          _enterFullscreen(instance);
         }
-      },
-      child: StreamBuilder(
-        stream: instance.player.stream.error,
-        builder: (context, snapshot) {
-          if (snapshot.hasData && _retryCount >= settings.playbackRetryLimit) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.error_outline,
-                      color: Colors.white70, size: 48),
-                  const SizedBox(height: 16),
-                  const Text('播放失败，正在切换到下一条...',
-                      style: TextStyle(color: Colors.white70)),
-                  const SizedBox(height: 8),
-                  Text('错误：${snapshot.data}',
-                      style:
-                          const TextStyle(color: Colors.white38, fontSize: 12)),
-                ],
-              ),
-            );
-          }
+      });
+    }
 
-          // Determine orientation based on current player state
-          Future<void> onFullscreen() async {
-            final state = _videoKey.currentState;
-            if (state != null) {
-              try {
-                if (state.isFullscreen()) {
-                  await state.exitFullscreen();
-                } else {
-                  // 1. Get latest dimensions
-                  final width = instance.player.state.width;
-                  final height = instance.player.state.height;
+    final error = _playbackError;
+    if (error != null) {
+      return _buildErrorPanel(instance, error, settings);
+    }
 
-                  // Use aspect ratio for better detection.
-                  // Default to portrait (isLandscape = false) if dimensions are missing or invalid.
-                  final double aspectRatio =
-                      (width != null && height != null && height != 0)
-                          ? width / height
-                          : 0.0;
-                  final isLandscape = aspectRatio > 1.0;
-
-                  AppLogger.log(
-                      'XFLOW: Fullscreen toggle. ID: ${widget.tweet.id} W: $width H: $height AR: $aspectRatio Landscape: $isLandscape');
-
-                  // 2. Start orientation change immediately
-                  if (isLandscape) {
-                    await SystemChrome.setPreferredOrientations([
-                      DeviceOrientation.landscapeLeft,
-                      DeviceOrientation.landscapeRight,
-                    ]);
-                  } else {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Center(
+            child: RepaintBoundary(
+              child: MaterialVideoControlsTheme(
+                normal: const MaterialVideoControlsThemeData(
+                  displaySeekBar: false,
+                  automaticallyImplySkipNextButton: false,
+                  automaticallyImplySkipPreviousButton: false,
+                ),
+                fullscreen: MaterialVideoControlsThemeData(
+                  displaySeekBar: false, // Custom layout below
+                  automaticallyImplySkipNextButton: false,
+                  automaticallyImplySkipPreviousButton: false,
+                  buttonBarHeight: 100.0,
+                  bottomButtonBarMargin: EdgeInsets.zero,
+                  primaryButtonBar: [
+                    const Spacer(),
+                    const MaterialPlayOrPauseButton(iconSize: 64),
+                    const Spacer(),
+                  ],
+                  bottomButtonBar: [
+                    Expanded(
+                      child: Container(
+                        color: Colors.black.withOpacity(0.5),
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 16.0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            const MaterialSeekBar(),
+                            Row(
+                              children: [
+                                const MaterialPositionIndicator(),
+                                const Spacer(),
+                                MaterialCustomButton(
+                                  onPressed: () {
+                                    ref
+                                        .read(feedNotifierProvider.notifier)
+                                        .toggleLike(widget.tweet.id);
+                                  },
+                                  icon: TweetLikeIcon(tweetId: widget.tweet.id),
+                                ),
+                                MaterialCustomButton(
+                                  onPressed: () => _enterFullscreen(instance),
+                                  icon: const Icon(Icons.fullscreen_exit),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                child: Video(
+                  key: _videoKey,
+                  controller: instance.controller,
+                  fit: BoxFit.contain,
+                  onEnterFullscreen: () => _enterFullscreenNoDefault(instance),
+                  controls: (state) {
+                    return Stack(
+                      children: [
+                        Positioned.fill(
+                          child: GestureDetector(
+                            onTap: () => _toggleUserPause(instance),
+                            behavior: HitTestBehavior.opaque,
+                            // A GestureDetector with no child has zero size, so
+                            // its onTap could never be hit and tapping to pause
+                            // did nothing at all.
+                            child: const SizedBox.expand(),
+                          ),
+                        ),
+                        if (widget.overlayBuilder != null)
+                          Positioned.fill(
+                            child: widget.overlayBuilder!(
+                              context,
+                              () => _enterFullscreen(instance),
+                              false,
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                  onExitFullscreen: () async {
                     await SystemChrome.setPreferredOrientations([
                       DeviceOrientation.portraitUp,
                     ]);
-                  }
-
-                  // 3. Enter fullscreen
-                  await state.enterFullscreen();
-                }
-              } catch (e) {
-                AppLogger.log('XFLOW: Error toggling fullscreen: $e');
-              }
-            }
-          }
-
-          // Handle auto-fullscreen if requested
-          if (widget.isVisible &&
-              widget.autoFullscreen &&
-              !_isAutoFullscreenDone) {
-            _isAutoFullscreenDone = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) {
-                final state = _videoKey.currentState;
-                if (state != null && !state.isFullscreen()) {
-                  onFullscreen();
-                }
-              }
-            });
-          }
-
-          return Stack(
-            children: [
-              Positioned.fill(
-                child: Center(
-                  child: RepaintBoundary(
-                    child: MaterialVideoControlsTheme(
-                      normal: const MaterialVideoControlsThemeData(
-                        displaySeekBar: false,
-                        automaticallyImplySkipNextButton: false,
-                        automaticallyImplySkipPreviousButton: false,
-                      ),
-                      fullscreen: MaterialVideoControlsThemeData(
-                        displaySeekBar: false, // Custom layout below
-                        automaticallyImplySkipNextButton: false,
-                        automaticallyImplySkipPreviousButton: false,
-                        buttonBarHeight: 100.0,
-                        bottomButtonBarMargin: EdgeInsets.zero,
-                        primaryButtonBar: [
-                          const Spacer(),
-                          const MaterialPlayOrPauseButton(iconSize: 64),
-                          const Spacer(),
-                        ],
-                        bottomButtonBar: [
-                          Expanded(
-                            child: Container(
-                              color: Colors.black.withOpacity(0.5),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16.0, vertical: 8.0),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  const MaterialSeekBar(),
-                                  Row(
-                                    children: [
-                                      const MaterialPositionIndicator(),
-                                      const Spacer(),
-                                      // Like Button
-                                      MaterialCustomButton(
-                                        onPressed: () {
-                                          ref
-                                              .read(
-                                                  feedNotifierProvider.notifier)
-                                              .toggleLike(widget.tweet.id);
-                                        },
-                                        icon: Consumer(
-                                          builder: (context, ref, child) {
-                                            final isLiked = ref.watch(
-                                                feedNotifierProvider.select(
-                                                    (s) =>
-                                                        s.value?.tweets
-                                                            .firstWhere(
-                                                                (t) =>
-                                                                    t.id ==
-                                                                    widget.tweet.id,
-                                                                orElse: () => widget.tweet.copyWith(
-                                                                    isLiked: false),
-                                                            )
-                                                            .isLiked ??
-                                                        false));
-                                            return Icon(
-                                              isLiked
-                                                  ? Icons.favorite
-                                                  : Icons.favorite_border,
-                                              color: isLiked
-                                                  ? Colors.red
-                                                  : Colors.white,
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                      // Exit Fullscreen Button
-                                      MaterialCustomButton(
-                                        onPressed: onFullscreen,
-                                        icon: const Icon(Icons.fullscreen_exit),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      child: Video(
-                        key: _videoKey,
-                        controller: instance.controller,
-                        fit: BoxFit.contain,
-                        controls: (state) {
-                          if (state.isFullscreen()) {
-                            return MaterialVideoControls(state);
-                          }
-                          return Stack(
-                            children: [
-                              GestureDetector(
-                                onTap: () {
-                                  if (instance.player.state.playing) {
-                                    instance.player.pause();
-                                  } else {
-                                    instance.player.play();
-                                  }
-                                },
-                                behavior: HitTestBehavior.opaque,
-                              ),
-                              if (widget.overlayBuilder != null)
-                                Positioned.fill(
-                                  child: widget.overlayBuilder!(
-                                    context,
-                                    onFullscreen,
-                                    false,
-                                  ),
-                                ),
-                            ],
-                          );
-                        },
-                        onExitFullscreen: () async {
-                          await SystemChrome.setPreferredOrientations([
-                            DeviceOrientation.portraitUp,
-                          ]);
-                        },
-                      ),
-                    ),
-                  ),
+                  },
                 ),
               ),
-              // Progress Bar at the very bottom
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: _buildProgressBar(instance),
-              ),
-            ],
-          );
-        },
+            ),
+          ),
+        ),
+        // Progress Bar at the very bottom
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: _buildProgressBar(instance),
+        ),
+      ],
+    );
+  }
+
+  void _scheduleSync(bool appActive) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _syncPlayback(appActive);
+    });
+  }
+
+  /// `Video.onEnterFullscreen` runs *in addition to* media_kit pushing the
+  /// fullscreen route, so it must only fix the orientation/immersive state and
+  /// not call `enterFullscreen()` again.
+  Future<void> _enterFullscreenNoDefault(PlayerInstance instance) async {
+    final width = instance.player.state.width ?? widget.tweet.mediaWidth;
+    final height = instance.player.state.height ?? widget.tweet.mediaHeight;
+    final aspectRatio =
+        (width != null && height != null && height > 0) ? width / height : 0.0;
+    final isLandscape = aspectRatio > 1.0;
+    AppLogger.log(
+        'XFLOW: Fullscreen orientation. ID: ${widget.tweet.id} W: $width H: $height Landscape: $isLandscape');
+    try {
+      await SystemChrome.setPreferredOrientations(isLandscape
+          ? [
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight
+            ]
+          : [DeviceOrientation.portraitUp]);
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky,
+          overlays: []);
+    } catch (e) {
+      AppLogger.log('XFLOW: Error applying fullscreen orientation: $e');
+    }
+  }
+
+  Widget _buildErrorPanel(
+      PlayerInstance instance, String error, SettingsState settings) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error_outline, color: Colors.white70, size: 48),
+          const SizedBox(height: 16),
+          const Text('播放失败，正在切换到下一条...',
+              style: TextStyle(color: Colors.white70)),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text('错误：$error',
+                style: const TextStyle(color: Colors.white38, fontSize: 12),
+                textAlign: TextAlign.center),
+          ),
+          const SizedBox(height: 16),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _playbackError = null;
+                _retryCount = 0;
+                _userPaused = false;
+              });
+              instance.player
+                  .open(Media(widget.tweet.mediaUrls.first), play: true);
+            },
+            child:
+                const Text('重试', style: TextStyle(color: Colors.white70)),
+          ),
+        ],
       ),
     );
   }
@@ -577,6 +657,13 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
   }
 
   Widget _buildImageGallery() {
+    // Decode at roughly twice the on-screen width. Without a downscale target a
+    // 4096px photo is decoded full-size per item, which drops frames or kills
+    // low-memory devices. Only the width is capped so the aspect ratio (and thus
+    // BoxFit.contain) stays intact.
+    final targetWidth =
+        (MediaQuery.of(context).size.width * 2).clamp(600, 1600).round();
+
     if (widget.tweet.mediaUrls.length == 1) {
       return SizedBox.expand(
         child: Center(
@@ -584,6 +671,7 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
             cacheManager: CustomMediaCacheManager.getInstance(),
             imageUrl: widget.tweet.mediaUrls.first,
             fit: BoxFit.contain,
+            memCacheWidth: targetWidth,
             placeholder: (context, url) =>
                 const Center(child: CircularProgressIndicator()),
             errorWidget: (context, url, error) => const Icon(Icons.error),
@@ -596,6 +684,7 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
       scrollDirection: Axis.horizontal,
       itemCount: widget.tweet.mediaUrls.length,
       onPageChanged: (index) {
+        if (!mounted) return;
         setState(() {
           _imageIndex = index;
         });
@@ -607,6 +696,7 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
               cacheManager: CustomMediaCacheManager.getInstance(),
               imageUrl: widget.tweet.mediaUrls[index],
               fit: BoxFit.contain,
+              memCacheWidth: targetWidth,
               placeholder: (context, url) =>
                   const Center(child: CircularProgressIndicator()),
               errorWidget: (context, url, error) => const Icon(Icons.error),
@@ -614,6 +704,22 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Heart icon for the fullscreen control bar. Shows the state the feed actually
+/// holds for this tweet (including an optimistic like and its revert).
+class TweetLikeIcon extends ConsumerWidget {
+  const TweetLikeIcon({super.key, required this.tweetId});
+  final String tweetId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isLiked = ref.watch(tweetIsLikedProvider(tweetId));
+    return Icon(
+      isLiked ? Icons.favorite : Icons.favorite_border,
+      color: isLiked ? Colors.red : Colors.white,
     );
   }
 }

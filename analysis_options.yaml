@@ -16,6 +16,12 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    # Local copy of the Flutter SDK lives inside the project folder. It is
+    # git-ignored, but the analyzer still walks it and reported ~24k issues from
+    # flutter_sdk/dev/**, which buried the project's own findings.
+    - flutter_sdk/**
+    - docs/**
+    - scripts/**
 include: package:flutter_lints/flutter.yaml
 
 linter:

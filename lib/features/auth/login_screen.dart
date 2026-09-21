@@ -38,14 +38,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             if (url == LoginScreen.homeUrl) {
               if (_userFound) return;
 
-              String screenName = (await _controller.runJavaScriptReturningResult(
-                      "document.documentElement.outerHTML.match(/\"screen_name\":\"([^\"]+)\"/)?.[1] ?? '';"))
-                  .toString();
+              String screenName = _jsResultToString(
+                  await _controller.runJavaScriptReturningResult(
+                      "document.documentElement.outerHTML.match(/\"screen_name\":\"([^\"]+)\"/)?.[1] ?? '';"));
 
-              if (screenName == '' || screenName == 'null') {
+              if (screenName.isEmpty) {
                 return;
               }
-              screenName = screenName.replaceAll('"', '');
               _userFound = true;
 
               final cookies =
@@ -72,41 +71,57 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 "x-csrf-token": ct0Cookie.value,
               };
 
-              // Fetch rest_id using screenName, retrying across candidate
-              // query IDs so an expired ID does not leave restId empty.
+              // Fetch rest_id, preferring what the session itself reports.
+              //
+              // The first `screen_name` in the /home HTML is not guaranteed to
+              // be the signed-in user (embedded timeline data can appear
+              // earlier), which used to store a stranger's handle + rest id and
+              // then sync *their* follow list into this app's subscriptions.
               String restId = '';
-              final attemptPaths =
-                  QueryIdResolver.candidatePaths('UserByScreenName');
-              for (final path in attemptPaths) {
-                final profileUri = Uri.https('x.com', '/i/api$path', {
-                  'variables': jsonEncode({
-                    'screen_name': screenName,
-                    'withHighlightedLabel': true,
-                    'withSafetyModeUserFields': true,
-                    'withSuperFollowsUserFields': true
-                  }),
-                  'features': jsonEncode(TwitterClient.defaultFeatures)
-                });
+              final session = await _fetchSessionUser(authHeader);
+              if (session != null) {
+                if (session.screenName.isNotEmpty) {
+                  screenName = session.screenName;
+                }
+                restId = session.restId;
+                AppLogger.log(
+                    'XFLOW: Login identity from session: @$screenName ($restId)');
+              }
 
-                try {
-                  final profileRes = await http.get(profileUri, headers: {
-                    ...authHeader,
-                    'User-Agent': xMobileUserAgent,
-                    'Content-Type': 'application/json',
+              if (restId.isEmpty) {
+                final attemptPaths =
+                    QueryIdResolver.candidatePaths('UserByScreenName');
+                for (final path in attemptPaths) {
+                  final profileUri = Uri.https('x.com', '/i/api$path', {
+                    'variables': jsonEncode({
+                      'screen_name': screenName,
+                      'withHighlightedLabel': true,
+                      'withSafetyModeUserFields': true,
+                      'withSuperFollowsUserFields': true
+                    }),
+                    'features': jsonEncode(TwitterClient.defaultFeatures)
                   });
-                  if (profileRes.statusCode != 200) {
-                    AppLogger.log(
-                        'XFLOW: Login profile fetch status ${profileRes.statusCode} for $path');
-                    continue;
+
+                  try {
+                    final profileRes = await http.get(profileUri, headers: {
+                      ...authHeader,
+                      'User-Agent': xMobileUserAgent,
+                      'Content-Type': 'application/json',
+                    });
+                    if (profileRes.statusCode != 200) {
+                      AppLogger.log(
+                          'XFLOW: Login profile fetch status ${profileRes.statusCode} for $path');
+                      continue;
+                    }
+                    final profileData = json.decode(profileRes.body);
+                    final userResult = profileData['data']?['user']?['result'];
+                    if (userResult != null) {
+                      restId = userResult['rest_id'] ?? '';
+                    }
+                    if (restId.isNotEmpty) break;
+                  } catch (e) {
+                    AppLogger.log('XFLOW: Login profile fetch error $path: $e');
                   }
-                  final profileData = json.decode(profileRes.body);
-                  final userResult = profileData['data']?['user']?['result'];
-                  if (userResult != null) {
-                    restId = userResult['rest_id'] ?? '';
-                  }
-                  if (restId.isNotEmpty) break;
-                } catch (e) {
-                  AppLogger.log('XFLOW: Login profile fetch error $path: $e');
                 }
               }
 
@@ -122,14 +137,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               }
 
               final account = Account(
-                id: ct0Cookie.value,
+                // Stable primary key: ct0 rotates on every login, so keying by
+                // it inserted a new row each time and the app later signed back
+                // in with the oldest (expired) stored session.
+                id: restId,
                 screenName: screenName,
                 restId: restId,
                 authHeader: json.encode(authHeader),
               );
 
-              await Repository.insertAccount(account);
+              await Repository.replaceAccount(account);
               ref.read(accountProvider.notifier).login(account);
+              // Fresh session: drop any 429 cooldown / chunk rotation learned
+              // under the previous account.
+              TwitterClient.clearCooldowns();
+              TwitterClient.resetSubscriptionRotation();
 
               if (mounted) {
                 Navigator.pop(context, true);
@@ -141,6 +163,54 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       ..loadRequest(Uri.parse("https://x.com/i/flow/login"));
   }
 
+  /// Android's `runJavaScriptReturningResult` hands back the *JSON encoded*
+  /// value, so an empty JS string arrives as the two characters `""`. The old
+  /// code compared `screenName == ''` *before* stripping the quotes, so that
+  /// guard never fired and an empty handle was used for the profile lookup.
+  static String _jsResultToString(Object? raw) {
+    var text = raw?.toString() ?? '';
+    if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+      text = text.substring(1, text.length - 1);
+    }
+    text = text.replaceAll('"', '').trim();
+    if (text == 'null' || text == 'undefined') return '';
+    return text;
+  }
+
+  /// Asks the signed-in session who it is, instead of trusting the first
+  /// `screen_name` found in the /home markup.
+  Future<SessionUser?> _fetchSessionUser(
+      Map<String, String> authHeader) async {
+    try {
+      final uri = Uri.https(
+          'x.com', '/i/api/1.1/account/verify_credentials.json', {
+        'include_entities': 'false',
+        'skip_status': 'true',
+        'include_email': 'false',
+      });
+      final res = await http.get(uri, headers: {
+        ...authHeader,
+        'User-Agent': xMobileUserAgent,
+        'x-twitter-active-user': 'yes',
+        'x-twitter-client-language': 'en',
+        'x-twitter-auth-type': 'OAuth2Session',
+      }).timeout(const Duration(seconds: 12));
+      if (res.statusCode != 200) {
+        AppLogger.log('XFLOW: verify_credentials status ${res.statusCode}');
+        return null;
+      }
+      final data = json.decode(utf8.decode(res.bodyBytes));
+      if (data is! Map<String, dynamic>) return null;
+      final name = data['screen_name']?.toString() ?? '';
+      final id = data['id_str']?.toString() ?? data['id']?.toString() ?? '';
+      if (name.isEmpty || id.isEmpty) return null;
+      return (screenName: name, restId: id);
+    } catch (e) {
+      AppLogger.log('XFLOW: verify_credentials failed: $e');
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -149,3 +219,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 }
+
+/// A logged-in identity: handle + numeric rest id.
+typedef SessionUser = ({String screenName, String restId});

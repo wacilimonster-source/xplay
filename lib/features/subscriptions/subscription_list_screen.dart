@@ -11,6 +11,7 @@ import '../../core/client/account_provider.dart';
 import '../../core/client/twitter_client.dart';
 import '../../core/client/twitter_account.dart';
 import '../auth/login_screen.dart';
+import '../feed/feed_provider.dart';
 
 enum SubscriptionSort {
   name,
@@ -247,11 +248,24 @@ class SubscriptionListScreen extends ConsumerWidget {
                     await Repository.syncFollowingFromList(subs,
                         deleteMissing: complete);
                   }
+                  // The page may be gone by now: touching `ref` afterwards throws.
+                  if (!context.mounted) return;
                   ref.invalidate(subscriptionListProvider);
-                  messenger.showSnackBar(SnackBar(
-                    content: Text(
-                        subs.isEmpty ? '同步失败，请稍后重试' : '已同步 ${subs.length} 个关注账号'),
-                  ));
+                  ref.invalidate(feedNotifierProvider);
+                  final cooldown = TwitterClient.cooldownUntilFor('Following');
+                  final String message;
+                  if (subs.isEmpty && cooldown != null) {
+                    message = '账号访问过于频繁，请稍后再试';
+                  } else if (subs.isEmpty && complete) {
+                    message = '该账号没有关注任何人';
+                  } else if (subs.isEmpty) {
+                    message = '同步失败，请稍后重试';
+                  } else {
+                    message = complete
+                        ? '已同步 ${subs.length} 个关注账号'
+                        : '已同步 ${subs.length} 个关注账号（列表未取完，可稍后再同步一次）';
+                  }
+                  messenger.showSnackBar(SnackBar(content: Text(message)));
                 },
                 child: const Text('同步关注列表'),
               ),

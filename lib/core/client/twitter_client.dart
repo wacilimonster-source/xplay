@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'twitter_account.dart';
 import 'query_id_resolver.dart';
 import '../models/tweet.dart';
@@ -12,10 +11,24 @@ import '../../features/settings/settings_provider.dart';
 
 class TweetResponse {
   List<Tweet> tweets;
-  final String? cursorTop;
-  final String? cursorBottom;
 
-  TweetResponse({required this.tweets, this.cursorTop, this.cursorBottom});
+  /// The request was rejected with HTTP 429, or the endpoint is still cooling
+  /// down. Lets the UI say "被限流了，稍后自动重试" instead of "未找到媒体内容".
+  final bool rateLimited;
+
+  /// Every candidate GraphQL path failed (expired operation ids, transport
+  /// errors). Used to decide whether a degraded fallback is justified at all.
+  final bool allPathsFailed;
+
+  TweetResponse(
+      {required this.tweets,
+      this.cursorTop,
+      this.cursorBottom,
+      this.rateLimited = false,
+      this.allPathsFailed = false});
+
+  String? cursorTop;
+  String? cursorBottom;
 }
 
 class TwitterClient {
@@ -26,47 +39,88 @@ class TwitterClient {
     return path.substring(start, end == -1 ? path.length : end);
   }
 
+  // ---------------------------------------------------------------------------
   // Rate limiting prevention
-  static bool _isRequestInProgress = false;
-  static final List<Completer<void>> _requestQueue = [];
+  // ---------------------------------------------------------------------------
+
+  /// FIFO chain of critical sections. Each link completes in a `finally`, so a
+  /// request can neither release someone else's turn nor be released twice —
+  /// the old `_isRequestInProgress` + hand-copied try/finally pairs did exactly
+  /// that in `fetchUserTimeline`, which let requests run concurrently and get
+  /// the account rate limited.
+  static Future<void>? _gateTail;
+  static Completer<void>? _currentGate;
+
+  /// Rotating index of the subscription chunk, and the chunk the last page came
+  /// from (so "load more" stays on the same query as the cursor it uses).
   static int _subscriptionChunkIndex = 0;
   static String? _lastSubscribedQuery;
 
-  static Future<void> _waitForTurn() async {
-    if (!_isRequestInProgress) {
-      _isRequestInProgress = true;
-      return;
-    }
-
-    final completer = Completer<void>();
-    _requestQueue.add(completer);
-    await completer.future;
+  /// Forgets chunk rotation, e.g. after the subscription list changed.
+  static void resetSubscriptionRotation() {
+    _subscriptionChunkIndex = 0;
+    _lastSubscribedQuery = null;
   }
 
-  static void _releaseTurn() {
-    if (_requestQueue.isNotEmpty) {
-      final next = _requestQueue.removeAt(0);
-      next.complete();
-    } else {
-      _isRequestInProgress = false;
+  static Future<T> _gated<T>(Future<T> Function() body) async {
+    final previous = _gateTail;
+    final mine = Completer<void>();
+    _currentGate = mine;
+    final chained = previous == null
+        ? Future<void>.value()
+        : previous.then((_) {}, onError: (_) {});
+    _gateTail = mine.future;
+    await chained;
+    try {
+      return await body();
+    } finally {
+      if (!mine.isCompleted) mine.complete();
     }
   }
 
+  /// Releases the currently held slot. Called when the app resumes after a
+  /// request may have been frozen by the OS; queued waiters keep their place and
+  /// are *not* failed, so a background/foreground switch no longer blanks the
+  /// feed.
   static void resetQueue() {
-    AppLogger.log('XFLOW: Resetting request queue');
-    _isRequestInProgress = false;
-    while (_requestQueue.isNotEmpty) {
-      final next = _requestQueue.removeAt(0);
-      if (!next.isCompleted) {
-        next.completeError(
-            Exception('Queue reset due to app lifecycle change'));
-      }
+    final held = _currentGate;
+    if (held != null && !held.isCompleted) {
+      AppLogger.log('XFLOW: Releasing request gate after lifecycle change');
+      held.complete();
     }
   }
 
-  static void _handleRateLimit(int minutes) {
-    AppLogger.log('429 Rate Limit Exceeded on this endpoint. Skipping.');
+  // ---------------------------------------------------------------------------
+  // Per-endpoint 429 cooldown
+  // ---------------------------------------------------------------------------
+
+  static final Map<String, DateTime> _cooldownUntil = {};
+
+  /// Records that [endpoint] is rate limited and must not be hit for
+  /// [minutes]. The value comes from the "账户冷却时间" setting; it used to be
+  /// passed in and silently dropped, so every retry re-triggered the limit.
+  static void _handleRateLimit(String endpoint, int minutes) {
+    AppLogger.log('429 Rate Limit Exceeded on $endpoint.');
+    if (minutes <= 0) return;
+    _cooldownUntil[endpoint] =
+        DateTime.now().add(Duration(minutes: minutes));
+    AppLogger.log('XFLOW: $endpoint cooling down until ${_cooldownUntil[endpoint]}');
   }
+
+  static bool _inCooldown(String endpoint) {
+    final until = _cooldownUntil[endpoint];
+    if (until == null) return false;
+    if (DateTime.now().isAfter(until)) {
+      _cooldownUntil.remove(endpoint);
+      return false;
+    }
+    return true;
+  }
+
+  /// When the given endpoint stops being rate limited, for UI messaging.
+  static DateTime? cooldownUntilFor(String endpoint) => _cooldownUntil[endpoint];
+
+  static void clearCooldowns() => _cooldownUntil.clear();
 
   static const Map<String, dynamic> defaultFeatures = {
     'android_ad_formats_media_component_render_overlay_enabled': false,
@@ -537,15 +591,19 @@ class TwitterClient {
     );
   }
 
-  Future<(List<Subscription> subscriptions, bool complete)>?
-      _followingInFlight;
+  final Map<String,
+          Future<(List<Subscription> subscriptions, bool complete)>>
+      _followingInFlight = {};
 
   Future<(List<Subscription> subscriptions, bool complete)>
       fetchFollowing(String userId,
           {int maxCount = 2000, int cooldownMinutes = 15}) async {
-    if (_followingInFlight != null) {
+    // De-duplicate concurrent syncs, but keyed per user: a single shared slot
+    // handed one account's follower list to whoever asked next.
+    final running = _followingInFlight[userId];
+    if (running != null) {
       AppLogger.log('fetchFollowing: reusing in-flight request for $userId');
-      return _followingInFlight!;
+      return running;
     }
 
     final future = _fetchFollowing(
@@ -553,12 +611,12 @@ class TwitterClient {
       maxCount: maxCount,
       cooldownMinutes: cooldownMinutes,
     );
-    _followingInFlight = future;
+    _followingInFlight[userId] = future;
     try {
       return await future;
     } finally {
-      if (identical(_followingInFlight, future)) {
-        _followingInFlight = null;
+      if (identical(_followingInFlight[userId], future)) {
+        _followingInFlight.remove(userId);
       }
     }
   }
@@ -567,6 +625,11 @@ class TwitterClient {
       String userId,
       {int maxCount = 2000, int cooldownMinutes = 15}) async {
     final allSubs = <Subscription>[];
+    if (_inCooldown('Following')) {
+      AppLogger.log(
+          'XFLOW: Following cooling down until ${cooldownUntilFor('Following')}, sync skipped');
+      return (allSubs, false);
+    }
     String? currentCursor;
     final seenHandles = <String>{};
     final seenCursors = <String>{};
@@ -601,17 +664,11 @@ class TwitterClient {
           },
         );
 
-        await _waitForTurn();
-        late final http.Response response;
-        try {
-          response = await TwitterAccount.fetch(uri,
-              cacheDuration: const Duration(minutes: 15));
-        } finally {
-          _releaseTurn();
-        }
+        final response = await _gated(() => TwitterAccount.fetch(uri,
+            cacheDuration: const Duration(minutes: 15)));
 
         if (response.statusCode == 429) {
-          _handleRateLimit(cooldownMinutes);
+          _handleRateLimit('Following', cooldownMinutes);
           break;
         }
         if (response.statusCode != 200) {
@@ -784,6 +841,13 @@ final userResult =
       'fieldToggles': searchTimelineFieldToggles,
     });
 
+    if (_inCooldown('SearchTimeline')) {
+      AppLogger.log(
+          'XFLOW: SearchTimeline cooling down until ${cooldownUntilFor('SearchTimeline')}, request skipped');
+      return TweetResponse(tweets: [], rateLimited: true);
+    }
+
+    var sawValidResponse = false;
     try {
       final attemptPaths = QueryIdResolver.candidatePaths('SearchTimeline');
 
@@ -803,34 +867,32 @@ final userResult =
 
         _logTimelineRequest('fetchTrendingMedia', uri, context: context);
 
-        await _waitForTurn();
-        late final http.Response response;
-        try {
-          response = await TwitterAccount.fetch(uri, method: 'POST', body: postBody)
-              .timeout(Duration(seconds: timeoutSeconds));
-        } finally {
-          _releaseTurn();
-        }
+        final response = await _gated(() => TwitterAccount.fetch(uri,
+            method: 'POST',
+            body: postBody,
+            timeout: Duration(seconds: timeoutSeconds)));
 
         if (response.statusCode == 429) {
-          _handleRateLimit(cooldownMinutes);
-          return TweetResponse(tweets: []);
-        }
-        if (response.statusCode == 404 && i < attemptPaths.length - 1) {
-          AppLogger.log(
-              'SearchTimeline 404 for $path body=${response.body.isEmpty ? "(empty)" : response.body.substring(0, response.body.length.clamp(0, 200))}');
-          continue;
+          _handleRateLimit('SearchTimeline', cooldownMinutes);
+          return TweetResponse(tweets: [], rateLimited: true);
         }
         if (response.statusCode != 200) {
+          // Expired operation id or a transient error: keep trying the remaining
+          // candidates instead of giving up on the first non-200.
           AppLogger.log(
-              'Error status: ${response.statusCode} body: ${response.body}');
-          return TweetResponse(tweets: []);
+              'SearchTimeline status ${response.statusCode} for $path body=${response.body.isEmpty ? "(empty)" : response.body.substring(0, response.body.length.clamp(0, 200))}');
+          continue;
         }
 
         final result = json.decode(response.body);
         final timeline =
             result?['data']?['search_by_raw_query']?['search_timeline'];
-        if (timeline == null) return TweetResponse(tweets: []);
+        if (timeline == null) {
+          AppLogger.log(
+              'SearchTimeline returned 200 without search_timeline for $path');
+          continue;
+        }
+        sawValidResponse = true;
 
         final tweetResponse = _parseTweets(timeline);
 
@@ -853,10 +915,13 @@ final userResult =
         return tweetResponse;
       }
 
-      return TweetResponse(tweets: []);
+      // No candidate produced a usable answer. `allPathsFailed` distinguishes
+      // "everything is broken" from "this query genuinely has no tweets", so
+      // callers only fall back to a different content source when justified.
+      return TweetResponse(tweets: [], allPathsFailed: !sawValidResponse);
     } catch (e) {
       AppLogger.log('Exception in fetchTrendingMedia: $e');
-      return TweetResponse(tweets: []);
+      return TweetResponse(tweets: [], allPathsFailed: !sawValidResponse);
     }
   }
 
@@ -989,10 +1054,16 @@ final userResult =
     // try HomeTimeline as a degraded but functional alternative.
     // (Applies to both first page and paginated requests — paginated
     // SearchTimeline cursors are invalidated when all query IDs expire.)
-    if (response.tweets.isEmpty) {
+    // FALLBACK: only when SearchTimeline is genuinely broken (every candidate
+    // operation id failed). An empty page — no new posts, everything filtered
+    // out, or the end of the cursor — must NOT silently replace the
+    // subscription feed with global recommendations.
+    if (response.tweets.isEmpty &&
+        response.allPathsFailed &&
+        !strictSubscriptionsOnly) {
       AppLogger.log(
-          'XFLOW: fetchSubscribedMedia SearchTimeline returned 0 tweets. '
-          'Trying HomeTimeline fallback...');
+          'XFLOW: fetchSubscribedMedia: all SearchTimeline paths failed and '
+          '"strict subscriptions only" is off. Trying HomeTimeline fallback...');
       try {
         final fallbackResponse = await fetchAlgorithmicTimeline(
           count: loadBatchSize,
@@ -1001,7 +1072,14 @@ final userResult =
         if (fallbackResponse.tweets.isNotEmpty) {
           AppLogger.log(
               'XFLOW: HomeTimeline fallback returned ${fallbackResponse.tweets.length} tweets');
-          return fallbackResponse;
+          // Label the degraded origin so the UI/debug can tell it apart, and
+          // drop the old cursor: it belongs to a different query.
+          return TweetResponse(
+            tweets: fallbackResponse.tweets
+                .map((t) => t.copyWith(source: 'HomeFallback'))
+                .toList(),
+            cursorBottom: fallbackResponse.cursorBottom,
+          );
         }
       } catch (e) {
         AppLogger.log('XFLOW: HomeTimeline fallback also failed: $e');
@@ -1041,6 +1119,11 @@ final userResult =
       Set<MediaFilter>? filters}) async {
     AppLogger.log(
         'Fetching user timeline for userId: $userId, cursor: $cursor');
+    if (_inCooldown('UserTweets')) {
+      AppLogger.log(
+          'XFLOW: UserTweets cooling down until ${cooldownUntilFor('UserTweets')}, request skipped');
+      return TweetResponse(tweets: [], rateLimited: true);
+    }
     final variables = {
       "userId": userId,
       "count": count,
@@ -1074,18 +1157,12 @@ final userResult =
             'operationPath': path,
           },
         );
-        await _waitForTurn();
-        late final http.Response response;
-        try {
-          response = await TwitterAccount.fetch(uri)
-              .timeout(Duration(seconds: timeoutSeconds));
-        } finally {
-          _releaseTurn();
-        }
+        final response = await _gated(() => TwitterAccount.fetch(uri,
+            timeout: Duration(seconds: timeoutSeconds)));
 
         if (response.statusCode == 429) {
-          _handleRateLimit(cooldownMinutes);
-          return TweetResponse(tweets: []);
+          _handleRateLimit('UserTweets', cooldownMinutes);
+          return TweetResponse(tweets: [], rateLimited: true);
         }
         if (response.statusCode == 404 && i < attemptPaths.length - 1) {
           AppLogger.log(
@@ -1126,7 +1203,6 @@ final userResult =
         );
         return tweetResponse;
       } catch (e) {
-        _releaseTurn();
         AppLogger.log('Error fetching user timeline: $e');
       }
     }
@@ -1135,7 +1211,10 @@ final userResult =
   }
 
   Future<TweetResponse> fetchUserTimelineByScreenName(String screenName,
-      {String? cursor, int cooldownMinutes = 15, Set<MediaFilter>? filters}) async {
+      {String? cursor,
+      int cooldownMinutes = 15,
+      Set<MediaFilter>? filters,
+      int timeoutSeconds = 15}) async {
     AppLogger.log(
         'Timeline request [fetchUserTimelineByScreenName]: screenName=$screenName cursor=${cursor ?? 'null'} cooldownMinutes=$cooldownMinutes');
     return fetchTrendingMedia(
@@ -1143,6 +1222,7 @@ final userResult =
       cursor: cursor,
       filters: filters,
       cooldownMinutes: cooldownMinutes,
+      timeoutSeconds: timeoutSeconds,
     );
   }
 
@@ -1155,22 +1235,19 @@ final userResult =
       final uri = Uri.https('x.com', '/i/api$path');
       try {
         AppLogger.log('Favoriting tweet: $tweetId attempt=${i + 1}');
-        await _waitForTurn();
-        final response = await TwitterAccount.fetch(
-          uri,
-          method: 'POST',
-          body: jsonEncode({
-            "variables": variables,
-            "queryId": _queryIdFromPath(path),
-          }),
-        );
+        final response = await _gated(() => TwitterAccount.fetch(
+              uri,
+              method: 'POST',
+              body: jsonEncode({
+                "variables": variables,
+                "queryId": _queryIdFromPath(path),
+              }),
+            ));
         if (response.statusCode == 404 && i < paths.length - 1) continue;
         return response.statusCode == 200;
       } catch (e) {
         AppLogger.log('Error favoriting tweet: $e');
         if (i == paths.length - 1) return false;
-      } finally {
-        _releaseTurn();
       }
     }
     return false;
@@ -1185,22 +1262,19 @@ final userResult =
       final uri = Uri.https('x.com', '/i/api$path');
       try {
         AppLogger.log('Unfavoriting tweet: $tweetId attempt=${i + 1}');
-        await _waitForTurn();
-        final response = await TwitterAccount.fetch(
-          uri,
-          method: 'POST',
-          body: jsonEncode({
-            "variables": variables,
-            "queryId": _queryIdFromPath(path),
-          }),
-        );
+        final response = await _gated(() => TwitterAccount.fetch(
+              uri,
+              method: 'POST',
+              body: jsonEncode({
+                "variables": variables,
+                "queryId": _queryIdFromPath(path),
+              }),
+            ));
         if (response.statusCode == 404 && i < paths.length - 1) continue;
         return response.statusCode == 200;
       } catch (e) {
         AppLogger.log('Error unfavoriting tweet: $e');
         if (i == paths.length - 1) return false;
-      } finally {
-        _releaseTurn();
       }
     }
     return false;
@@ -1239,9 +1313,12 @@ final userResult =
             'operationPath': path,
           },
         );
-        await _waitForTurn();
-        final response = await TwitterAccount.fetch(uri);
+        final response = await _gated(() => TwitterAccount.fetch(uri));
 
+        if (response.statusCode == 429) {
+          _handleRateLimit('TweetDetail', 15);
+          return TweetResponse(tweets: [], rateLimited: true);
+        }
         if (response.statusCode == 404 && i < paths.length - 1) continue;
         if (response.statusCode != 200) return TweetResponse(tweets: []);
         final result = json.decode(response.body);
@@ -1265,8 +1342,6 @@ final userResult =
       } catch (e) {
         AppLogger.log('Error fetching tweet detail: $e');
         if (i == paths.length - 1) return TweetResponse(tweets: []);
-      } finally {
-        _releaseTurn();
       }
     }
     return TweetResponse(tweets: []);
@@ -1285,8 +1360,13 @@ final userResult =
     };
     if (cursor != null) variables['cursor'] = cursor;
 
+    const opName = 'MediaTabVideoMixer';
+    if (_inCooldown(opName)) {
+      AppLogger.log('XFLOW: $opName cooling down, request skipped');
+      return TweetResponse(tweets: [], rateLimited: true);
+    }
     final uri = Uri.https(
-        'x.com', '/i/api${QueryIdResolver.pathFor('MediaTabVideoMixer')}', {
+        'x.com', '/i/api${QueryIdResolver.pathFor(opName)}', {
       'variables': jsonEncode(variables),
       'features': jsonEncode(followingFeatures),
     });
@@ -1301,14 +1381,12 @@ final userResult =
           'filters': filters?.map((f) => f.name).toList(),
         },
       );
-      await _waitForTurn();
-      late final http.Response response;
-      try {
-        response = await TwitterAccount.fetch(uri);
-      } finally {
-        _releaseTurn();
-      }
+      final response = await _gated(() => TwitterAccount.fetch(uri));
 
+      if (response.statusCode == 429) {
+        _handleRateLimit(opName, 15);
+        return TweetResponse(tweets: [], rateLimited: true);
+      }
       if (response.statusCode != 200) return TweetResponse(tweets: []);
       final result = json.decode(response.body);
       final tweetResponse = _parseAgnosticTimeline(result);
@@ -1346,8 +1424,13 @@ final userResult =
     };
     if (cursor != null) variables['cursor'] = cursor;
 
+    const opName = 'HomeTimeline';
+    if (_inCooldown(opName)) {
+      AppLogger.log('XFLOW: $opName cooling down, request skipped');
+      return TweetResponse(tweets: [], rateLimited: true);
+    }
     final uri = Uri.https(
-        'x.com', '/i/api${QueryIdResolver.pathFor('HomeTimeline')}', {
+        'x.com', '/i/api${QueryIdResolver.pathFor(opName)}', {
       'variables': jsonEncode(variables),
       'features': jsonEncode(followingFeatures),
     });
@@ -1362,14 +1445,12 @@ final userResult =
           'filters': filters?.map((f) => f.name).toList(),
         },
       );
-      await _waitForTurn();
-      late final http.Response response;
-      try {
-        response = await TwitterAccount.fetch(uri);
-      } finally {
-        _releaseTurn();
-      }
+      final response = await _gated(() => TwitterAccount.fetch(uri));
 
+      if (response.statusCode == 429) {
+        _handleRateLimit(opName, 15);
+        return TweetResponse(tweets: [], rateLimited: true);
+      }
       if (response.statusCode != 200) return TweetResponse(tweets: []);
       final result = json.decode(response.body);
       final tweetResponse = _parseAgnosticTimeline(result);
@@ -1407,8 +1488,13 @@ final userResult =
     };
     if (cursor != null) variables['cursor'] = cursor;
 
+    const opName = 'HomeLatestTimeline';
+    if (_inCooldown(opName)) {
+      AppLogger.log('XFLOW: $opName cooling down, request skipped');
+      return TweetResponse(tweets: [], rateLimited: true);
+    }
     final uri = Uri.https(
-        'x.com', '/i/api${QueryIdResolver.pathFor('HomeLatestTimeline')}', {
+        'x.com', '/i/api${QueryIdResolver.pathFor(opName)}', {
       'variables': jsonEncode(variables),
       'features': jsonEncode(followingFeatures),
     });
@@ -1423,14 +1509,12 @@ final userResult =
           'filters': filters?.map((f) => f.name).toList(),
         },
       );
-      await _waitForTurn();
-      late final http.Response response;
-      try {
-        response = await TwitterAccount.fetch(uri);
-      } finally {
-        _releaseTurn();
-      }
+      final response = await _gated(() => TwitterAccount.fetch(uri));
 
+      if (response.statusCode == 429) {
+        _handleRateLimit(opName, 15);
+        return TweetResponse(tweets: [], rateLimited: true);
+      }
       if (response.statusCode != 200) return TweetResponse(tweets: []);
       final result = json.decode(response.body);
       final tweetResponse = _parseAgnosticTimeline(result);
@@ -1710,20 +1794,22 @@ final userResult =
         }
       }
 
+      // Some responses carry no video_info/sizes block; the CDN URL itself knows
+      // the pixel size (`?format=jpg&name=1200x600`), so fall back to it rather
+      // than storing a row with no dimensions at all.
+      if (mediaWidth == null || mediaHeight == null) {
+        final (urlW, urlH) = Tweet.parseTwitterMediaSize(thumbnailUrl);
+        if (urlW != null && urlH != null) {
+          mediaWidth = urlW;
+          mediaHeight = urlH;
+        }
+      }
+
       DateTime? createdAt;
       if (legacy['created_at'] != null) {
         createdAt = parseTwitterDateTime(legacy['created_at'].toString());
-      } else if (legacy['created_at_ms'] != null) {
-        try {
-          final ms = int.tryParse(legacy['created_at_ms'].toString());
-          if (ms != null) {
-            createdAt = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
-          }
-        } catch (e) {
-          AppLogger.log(
-              'XFLOW: Error parsing date_ms ${legacy['created_at_ms']}: $e');
-        }
       }
+      createdAt ??= parseTwitterEpochMillis(legacy['created_at_ms']);
 
       if (createdAt == null) {
         AppLogger.log(

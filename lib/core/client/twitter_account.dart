@@ -34,9 +34,19 @@ class TwitterAccount {
     return _currentAccount != null;
   }
 
+  /// md5 of the request, scoped to the signed-in account: without the scope a
+  /// re-login or logout could serve the previous account's cached response for
+  /// the remainder of its TTL.
   static String _getCacheKey(Uri uri) {
-    return md5.convert(utf8.encode(uri.toString())).toString();
+    final owner = _currentAccount?.restId ?? 'anon';
+    return md5
+        .convert(utf8.encode('$owner|${uri.toString()}'))
+        .toString();
   }
+
+  /// Keys written during this session, so [logout] can drop them (ffcache has
+  /// no clear-all).
+  static final Set<String> _sessionCacheKeys = {};
 
   static String compactForLog(Object? value, {int? maxLength}) {
     if (value == null) return 'null';
@@ -90,7 +100,13 @@ class TwitterAccount {
       {String method = 'GET',
       Object? body,
       Map<String, String>? headers,
-      Duration? cacheDuration}) async {
+      Duration? cacheDuration,
+      Duration timeout = const Duration(seconds: 15)}) async {
+    // Resolve the account first: the response cache key is scoped by it.
+    if (_currentAccount == null) {
+      await init();
+    }
+
     final requestSummary = _summarizeRequest(uri, method, body);
     final cacheKey = _getCacheKey(uri);
     if (method == 'GET' && cacheDuration != null) {
@@ -127,9 +143,7 @@ class TwitterAccount {
     };
 
     if (_currentAccount != null) {
-      final authHeaders =
-          Map<String, String>.from(json.decode(_currentAccount!.authHeader));
-      combinedHeaders.addAll(authHeaders);
+      combinedHeaders.addAll(_authHeadersOf(_currentAccount!));
     }
 
     // X requires the CSRF token (ct0 cookie) on mutation requests (POST).
@@ -176,14 +190,20 @@ class TwitterAccount {
             if (transactionId != null) {
               combinedHeaders['x-client-transaction-id'] = transactionId;
               txIdStatus = 'fallback:${formatTransactionIdForLog(transactionId)}';
+              _txIdRemoteCooldownUntil = null;
             } else {
+              // A 200 that carries no id is just as useless as an error: cool
+              // down, otherwise every single request pays this round trip.
               txIdStatus = 'missing:null-response-field';
+              _txIdRemoteCooldownUntil =
+                  DateTime.now().add(_txIdRemoteCooldown);
             }
           } else {
             txIdStatus =
                 'missing:generator-status-${transactionResponse.statusCode}';
+            _txIdRemoteCooldownUntil =
+                DateTime.now().add(_txIdRemoteCooldown);
           }
-          _txIdRemoteCooldownUntil = null;
         } catch (e) {
           _txIdRemoteCooldownUntil = DateTime.now().add(_txIdRemoteCooldown);
           txIdStatus = 'missing:error:${e.runtimeType}';
@@ -203,11 +223,11 @@ class TwitterAccount {
     if (method == 'POST') {
       response = await http
           .post(uri, headers: combinedHeaders, body: body)
-          .timeout(const Duration(seconds: 15));
+          .timeout(timeout);
     } else {
       response = await http
           .get(uri, headers: combinedHeaders)
-          .timeout(const Duration(seconds: 15));
+          .timeout(timeout);
     }
     stopwatch.stop();
     AppLogger.log(
@@ -218,6 +238,7 @@ class TwitterAccount {
       final decodedBody = utf8.decode(response.bodyBytes);
       if (method == 'GET' && cacheDuration != null) {
         await _cache.setStringWithTimeout(cacheKey, decodedBody, cacheDuration);
+        _sessionCacheKeys.add(cacheKey);
       }
       return http.Response(decodedBody, 200, headers: {
         ...response.headers,
@@ -227,35 +248,39 @@ class TwitterAccount {
     return response;
   }
 
-  static String? _guestIdFromAccount() {
-    final account = _currentAccount;
-    if (account == null) return null;
+  /// Stored per-account headers (Cookie + authorization). A corrupt blob used to
+  /// throw out of [fetch] and surface as "未找到媒体内容" with no hint that the
+  /// saved session is broken; now it is logged and treated as "not signed in".
+  static Map<String, String> _authHeadersOf(Account account) {
     try {
-      final auth =
-          Map<String, String>.from(json.decode(account.authHeader));
-      final cookie = auth['Cookie'];
-      if (cookie == null) return null;
-      final match =
-          RegExp(r'(?:^|;\s*)guest_id=([^;]+)').firstMatch(cookie);
-      return match?.group(1);
-    } catch (_) {
-      return null;
+      return Map<String, String>.from(json.decode(account.authHeader));
+    } catch (e) {
+      AppLogger.log(
+          'XFLOW: stored authHeader for ${account.screenName} is unreadable: $e');
+      return const {};
     }
   }
 
-  static String? _ct0FromAccount() {
+  static String? _cookieValue(String name) {
     final account = _currentAccount;
     if (account == null) return null;
-    try {
-      final auth = Map<String, String>.from(json.decode(account.authHeader));
-      final cookie = auth['Cookie'];
-      if (cookie == null) return null;
-      final match = RegExp(r'(?:^|;\s*)ct0=([^;]+)').firstMatch(cookie);
-      return match?.group(1);
-    } catch (_) {
-      return null;
-    }
+    final cookie = _authHeadersOf(account)['Cookie'];
+    if (cookie == null) return null;
+    final match =
+        RegExp('(?:^|;\\s*)${RegExp.escape(name)}=([^;]+)').firstMatch(cookie);
+    return match?.group(1);
   }
+
+  /// True when a stored, readable session exists (used by the empty-feed UI).
+  static bool hasUsableSession() {
+    final account = _currentAccount;
+    if (account == null) return false;
+    return _authHeadersOf(account)['Cookie'] != null;
+  }
+
+  static String? _guestIdFromAccount() => _cookieValue('guest_id');
+
+  static String? _ct0FromAccount() => _cookieValue('ct0');
 
   static void setCurrentAccount(Account account) {
     _currentAccount = account;
@@ -265,5 +290,14 @@ class TwitterAccount {
     final db = await Repository.database;
     await db.delete(tableAccounts);
     _currentAccount = null;
+    // Cached responses (timelines, follow lists) belong to the account that is
+    // being signed out of; leaving them behind shows the old user's data.
+    final keys = _sessionCacheKeys.toList();
+    _sessionCacheKeys.clear();
+    for (final key in keys) {
+      try {
+        await _cache.remove(key);
+      } catch (_) {}
+    }
   }
 }

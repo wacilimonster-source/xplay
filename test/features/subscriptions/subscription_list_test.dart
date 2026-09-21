@@ -21,7 +21,7 @@ void main() {
       );
 
       await tester.pumpAndSettle();
-      expect(find.text('No subscriptions found.'), findsOneWidget);
+      expect(find.text('未找到订阅内容'), findsOneWidget);
     });
 
     testWidgets('renders list of subscriptions', (WidgetTester tester) async {

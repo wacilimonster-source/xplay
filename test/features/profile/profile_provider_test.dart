@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:xplay/features/settings/settings_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xplay/features/profile/profile_provider.dart';
@@ -135,11 +136,15 @@ void main() {
 }
 
 Future<void> _waitFor(bool Function() predicate) async {
-  for (var i = 0; i < 20; i++) {
-    if (predicate()) return;
-    await Future<void>.delayed(const Duration(milliseconds: 10));
+  // A 200ms budget made these tests fail whenever the machine was busy (the
+  // background merge legitimately takes longer under load), so poll against a
+  // wall-clock deadline instead and keep the same clear failure.
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (!predicate()) {
+    if (DateTime.now().isAfter(deadline)) break;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
   }
-  expect(predicate(), isTrue);
+  expect(predicate(), isTrue, reason: 'condition not met within 10s');
 }
 
 class TestTwitterClient extends TwitterClient {
@@ -149,7 +154,8 @@ class TestTwitterClient extends TwitterClient {
   final fetchUserTimelineByScreenNameCalls = <String>[];
 
   @override
-  Future<Subscription?> fetchProfile(String screenName) async {
+  Future<Subscription?> fetchProfile(String screenName,
+      {void Function()? onRateLimit}) async {
     return profileByScreenName[screenName];
   }
 
@@ -159,6 +165,7 @@ class TestTwitterClient extends TwitterClient {
     String? cursor,
     int cooldownMinutes = 15,
     int count = 20,
+    Set<MediaFilter>? filters,
     int timeoutSeconds = 15,
   }) async {
     return timelineByUserId[userId] ?? Future.value(TweetResponse(tweets: []));
@@ -169,6 +176,8 @@ class TestTwitterClient extends TwitterClient {
     String screenName, {
     String? cursor,
     int cooldownMinutes = 15,
+    Set<MediaFilter>? filters,
+    int timeoutSeconds = 15,
   }) async {
     fetchUserTimelineByScreenNameCalls.add(screenName);
     return timelineByScreenName[screenName] ??

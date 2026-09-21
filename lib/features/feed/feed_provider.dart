@@ -18,32 +18,82 @@ class FeedState {
   final bool isLoadingMore;
   final bool isRefreshing;
 
+  /// False once the source reports no further page. Without this the cursor
+  /// could never be cleared (`copyWith` treats null as "keep old value"), so
+  /// every scroll past the end re-requested the same page and burned quota.
+  final bool hasMore;
+
+  /// The last request was rejected with 429 — lets the UI say "被限流了"
+  /// instead of the misleading "未找到媒体内容".
+  final bool rateLimited;
+
   FeedState({
     required this.tweets,
     this.cursorBottom,
     this.isLoadingMore = false,
     this.isRefreshing = false,
+    this.hasMore = true,
+    this.rateLimited = false,
   });
 
   FeedState copyWith({
     List<Tweet>? tweets,
     String? cursorBottom,
+
+    /// Set to true to explicitly drop the pagination cursor (e.g. after the
+    /// query changed) instead of keeping the previous one.
+    bool clearCursor = false,
     bool? isLoadingMore,
     bool? isRefreshing,
+    bool? hasMore,
+    bool? rateLimited,
   }) {
     return FeedState(
       tweets: tweets ?? this.tweets,
-      cursorBottom: cursorBottom ?? this.cursorBottom,
+      cursorBottom:
+          clearCursor ? null : (cursorBottom ?? this.cursorBottom),
       isLoadingMore: isLoadingMore ?? this.isLoadingMore,
       isRefreshing: isRefreshing ?? this.isRefreshing,
+      hasMore: hasMore ?? this.hasMore,
+      rateLimited: rateLimited ?? this.rateLimited,
     );
   }
 }
+
+/// Which of the live feeds currently holds a "liked" state for [tweetId].
+/// Used by the player's fullscreen bar, which is shared by all three feeds.
+final tweetIsLikedProvider = Provider.family<bool, String>((ref, tweetId) {
+  bool matches(AsyncValue<FeedState> feed) {
+    final tweets = feed.value?.tweets;
+    if (tweets == null) return false;
+    for (final t in tweets) {
+      if (t.id == tweetId) return t.isLiked;
+    }
+    return false;
+  }
+
+  return matches(ref.watch(feedNotifierProvider));
+});
 
 class FeedNotifier extends AsyncNotifier<FeedState> {
   int _cacheWriteCount = 0;
   static const int _enforceLimitInterval = 5;
 
+  /// Tweet the user is currently watching, reported by the feed screen. A
+  /// background refresh must not reshuffle the item under their fingers.
+  String? _anchorId;
+
+  bool _refreshInFlight = false;
+  bool _refreshRequested = false;
+
+  void setActiveTweet(String? id) {
+    _anchorId = id;
+  }
+
+  /// Settings that actually change what we should *fetch*. Watching the whole
+  /// [SettingsState] meant that touching an unrelated slider (cache size, log
+  /// level, retry count) rebuilt the feed, threw away everything the user had
+  /// loaded and reset the video they were watching.
   List<Tweet> _runDiscoveryPipeline(
     List<Tweet> freshPool,
     List<Tweet> localPool,
@@ -52,7 +102,17 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
     int protectedIndex = 0,
     List<Tweet> currentTweets = const [],
   }) {
-    final head = currentTweets.take(protectedIndex).toList();
+    // Keep everything up to *and including* the item being watched, so a
+    // refresh can neither replace it nor move it out from under the user.
+    var headEnd = protectedIndex;
+    final anchor = _anchorId;
+    if (anchor != null && currentTweets.isNotEmpty) {
+      final idx = currentTweets.indexWhere((t) => t.id == anchor);
+      if (idx != -1) headEnd = idx + 1;
+    }
+    headEnd = headEnd.clamp(0, currentTweets.length);
+
+    final head = currentTweets.take(headEnd).toList();
     final headIds = head.map((t) => t.id).toSet();
     final headMedia = head
         .where((t) => t.mediaUrls.isNotEmpty)
@@ -119,17 +179,28 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
 
   @override
   Future<FeedState> build() async {
-    final settings = ref.watch(settingsProvider);
+    // Only rebuild for fetch-relevant settings changes.
+    final settings =
+        ref.watch(settingsProvider.select((s) => s.fetchSnapshot));
 
     debugPrint(
-        'XFLOW: Building FeedNotifier. fetchStrategy: ${settings.fetchStrategy}');
+        'XFLOW: Building FeedNotifier. filters=${settings.filters.map((f) => f.name).join(',')} strategy=${settings.fetchStrategy}');
 
     try {
+      // Never query the cache before the stored preferences are known: the
+      // hard-coded initial state used to run one query with the wrong filters
+      // and then rebuild the feed a second time.
+      if (!settings.isInitialized) {
+        return FeedState(tweets: const [], isRefreshing: true);
+      }
+
+      final live = ref.read(settingsProvider);
+
       // Stage 1: Immediate local candidate retrieval
       final localPool = await Repository.getCachedMediaCandidates(
-        settings.loadBatchSize * settings.dbCandidateMultiplier,
-        avoidWatchedContent: settings.avoidWatchedContent,
-        filters: settings.filters,
+        live.loadBatchSize * live.dbCandidateMultiplier,
+        avoidWatchedContent: live.avoidWatchedContent,
+        filters: live.filters,
       );
       final localTagged =
           localPool.map((t) => t.copyWith(source: 'Cache')).toList();
@@ -142,15 +213,13 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
         for (int i = 0; i < localTagged.length && i < 3; i++) {
           final tweet = localTagged[i];
           if (tweet.isVideo && tweet.mediaUrls.isNotEmpty) {
-            pool.warmup(tweet.id, tweet.mediaUrls.first);
+            pool.warmup(tweet.id, tweet.mediaUrls.first, scope: 'home');
           }
         }
       }
 
       // TRIGGER BACKGROUND SYNC
-      if (settings.isInitialized) {
-        Future.delayed(Duration.zero, () => _refreshInBackground());
-      }
+      Future.delayed(Duration.zero, () => _refreshInBackground());
 
       return FeedState(
         tweets: localTagged,
@@ -165,24 +234,36 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
 
   Future<void> refresh() async {
     final currentState = state.value;
-    if (currentState == null || currentState.isRefreshing) return;
-
+    if (currentState == null) return;
+    if (_refreshInFlight) {
+      // Remember the request instead of racing two refreshes over the state.
+      _refreshRequested = true;
+      return;
+    }
     state = AsyncData(currentState.copyWith(isRefreshing: true));
     await _refreshInBackground(resetHead: true);
   }
 
   Future<void> _refreshInBackground({bool resetHead = false}) async {
     if (!ref.exists(feedNotifierProvider)) return;
+    if (_refreshInFlight) {
+      _refreshRequested = true;
+      return;
+    }
+    _refreshInFlight = true;
 
-    final client = ref.read(twitterClientProvider);
-    final settings = ref.read(settingsProvider);
-    final watched = settings.avoidWatchedContent
-        ? await Repository.getWatchedIdentifiers()
-        : const <String>{};
-
-    debugPrint('XFLOW: Background refresh started');
-
+    // `isRefreshing` has to be cleared on every exit path. It used to be set
+    // before a try block that could throw (the watch-identifier query), leaving
+    // the refresh spinner running forever.
     try {
+      final client = ref.read(twitterClientProvider);
+      final settings = ref.read(settingsProvider);
+      final watched = settings.avoidWatchedContent
+          ? await Repository.getWatchedIdentifiers()
+          : const <String>{};
+
+      debugPrint('XFLOW: Background refresh started');
+
       // 1. Fetch from API
       final TweetResponse freshResponse;
       if (settings.fetchStrategy == FeedSort.videomixer) {
@@ -228,7 +309,7 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
       if (freshPool.isEmpty) {
         AppLogger.log(
             'XFLOW: WARNING - Background refresh returned 0 tweets! '
-            'fetchStrategy=${settings.fetchStrategy}');
+            'fetchStrategy=${settings.fetchStrategy} rateLimited=${freshResponse.rateLimited}');
       }
 
       if (freshPool.isNotEmpty) {
@@ -236,7 +317,8 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
         _cacheWriteCount++;
         if (_cacheWriteCount >= _enforceLimitInterval) {
           _cacheWriteCount = 0;
-          CustomMediaCacheManager.enforceLimit(settings.mediaCacheSizeMB).ignore();
+          CustomMediaCacheManager.enforceLimit(settings.mediaCacheSizeMB)
+              .ignore();
         }
       }
 
@@ -249,38 +331,49 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
       final localTagged =
           localPool.map((t) => t.copyWith(source: 'Cache')).toList();
 
-      final currentAsync = ref.read(feedNotifierProvider);
-      if (currentAsync.hasValue) {
-        final current = currentAsync.value!;
+      // Reading this provider from inside itself trips Riverpod's
+      // "A provider cannot depend on itself" assertion; `state` is the same
+      // (and fresher) value.
+      final currentAsync = state;
+      if (!currentAsync.hasValue) return;
+      final current = currentAsync.value!;
 
-        final playedByUser = settings.unseenSubscriptionBoost
-            ? await Repository.getPlayedCountsByUser()
-            : const <String, int>{};
+      final playedByUser = settings.unseenSubscriptionBoost
+          ? await Repository.getPlayedCountsByUser()
+          : const <String, int>{};
 
-        // PROTECT THE ACTIVE VIDEO: If user is at index 0, protect index 0 from being swapped.
-        // We protect up to 2 items to ensure the "next" item also doesn't jump unexpectedly.
-        final processed = _runDiscoveryPipeline(
-          freshTagged,
-          localTagged,
-          settings,
-          playedByUser,
-          protectedIndex: resetHead ? 0 : 2,
-          currentTweets: resetHead ? [] : current.tweets,
-        );
+      final processed = _runDiscoveryPipeline(
+        freshTagged,
+        localTagged,
+        settings,
+        playedByUser,
+        protectedIndex: resetHead ? 0 : 2,
+        currentTweets: resetHead ? [] : current.tweets,
+      );
 
-        state = AsyncData(current.copyWith(
-          tweets: processed,
-          cursorBottom: freshResponse.cursorBottom,
-          isRefreshing: false,
-        ));
-        debugPrint(
-            'XFLOW: Feed state updated from background refresh. Total: ${processed.length}');
-      }
+      state = AsyncData(current.copyWith(
+        tweets: processed,
+        // Keep the working cursor when this page produced nothing usable.
+        cursorBottom: freshResponse.cursorBottom,
+        isRefreshing: false,
+        rateLimited: freshResponse.rateLimited,
+      ));
+      debugPrint(
+          'XFLOW: Feed state updated from background refresh. Total: ${processed.length}');
     } catch (e) {
       debugPrint('XFLOW: Background refresh error: $e');
-      final currentAsync = ref.read(feedNotifierProvider);
+      // Reading this provider from inside itself trips Riverpod's
+      // "A provider cannot depend on itself" assertion; `state` is the same
+      // (and fresher) value.
+      final currentAsync = state;
       if (currentAsync.hasValue) {
         state = AsyncData(currentAsync.value!.copyWith(isRefreshing: false));
+      }
+    } finally {
+      _refreshInFlight = false;
+      if (_refreshRequested) {
+        _refreshRequested = false;
+        Future<void>.microtask(() => _refreshInBackground());
       }
     }
   }
@@ -288,8 +381,17 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
   Future<void> fetchMore() async {
     final currentState = state.value;
     if (currentState == null || currentState.isLoadingMore) return;
+    if (!currentState.hasMore) {
+      AppLogger.log('XFLOW: fetchMore skipped: source reported no more pages');
+      return;
+    }
 
     final settings = ref.read(settingsProvider);
+
+    // Always work from a live view of the list: reading `state.value!` after the
+    // awaits used to overwrite items a concurrent refresh had appended.
+    List<Tweet> latest() =>
+        (state.value?.tweets ?? currentState.tweets);
 
     state = AsyncData(currentState.copyWith(isLoadingMore: true));
 
@@ -297,25 +399,43 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
       final watched = settings.avoidWatchedContent
           ? await Repository.getWatchedIdentifiers()
           : const <String>{};
-      final seenIds = state.value!.tweets.map((t) => t.id).toSet();
 
-      // Use dynamic deduplication window from settings
-      final dedupeWindow = state.value!.tweets.length >
-              settings.mediaDeduplicationWindow
-          ? state.value!.tweets.sublist(
-              state.value!.tweets.length - settings.mediaDeduplicationWindow)
-          : state.value!.tweets;
-
-      final seenMedia = dedupeWindow
+      // Live dedupe sets, updated as candidates are accepted. The previous
+      // version computed these once outside the loop, so the same tweet could be
+      // appended twice within one "load more".
+      final seenIds = latest().map((t) => t.id).toSet();
+      final seenMedia = latest()
           .where((t) => t.mediaUrls.isNotEmpty)
           .map((t) => t.mediaUrls.first)
           .toSet();
 
+      void remember(List<Tweet> accepted) {
+        for (final t in accepted) {
+          seenIds.add(t.id);
+          if (t.mediaUrls.isNotEmpty) seenMedia.add(t.mediaUrls.first);
+        }
+      }
+
+      List<Tweet> accept(List<Tweet> candidates) {
+        final out = <Tweet>[];
+        for (final t in candidates) {
+          if (seenIds.contains(t.id)) continue;
+          if (t.mediaUrls.isNotEmpty && seenMedia.contains(t.mediaUrls.first)) {
+            continue;
+          }
+          out.add(t);
+        }
+        remember(out);
+        return out;
+      }
+
       List<Tweet> allNewTweets = [];
-      String? currentCursor = state.value!.cursorBottom;
+      String? currentCursor = currentState.cursorBottom;
       final seenCursors = <String>{};
       int apiRetries = 0;
       int chunkRotations = 0;
+      var sourceExhausted = false;
+      var wasRateLimited = false;
       final maxRetries =
           settings.apiRetryLimit * 2; // Increase limit for robustness
 
@@ -329,10 +449,12 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
           filters: settings.filters,
         );
 
-        var localNew = Repository.filterUnwatched(dbCandidates.where((t) {
-          return !seenIds.contains(t.id) &&
-              (t.mediaUrls.isEmpty || !seenMedia.contains(t.mediaUrls.first));
-        }).toList(), watched);
+        final localNew = accept(Repository.filterUnwatched(
+            dbCandidates.where((t) =>
+                !seenIds.contains(t.id) &&
+                (t.mediaUrls.isEmpty || !seenMedia.contains(t.mediaUrls.first)))
+                .toList(),
+            watched));
 
         if (localNew.isNotEmpty) {
           allNewTweets.addAll(localNew);
@@ -380,10 +502,16 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
             );
           }
 
-          final freshUnique = Repository.filterUnwatched(response.tweets.where((t) {
-            return !seenIds.contains(t.id) &&
-                (t.mediaUrls.isEmpty || !seenMedia.contains(t.mediaUrls.first));
-          }).toList(), watched);
+          wasRateLimited = wasRateLimited || response.rateLimited;
+
+          final freshUnique = accept(Repository.filterUnwatched(
+              response.tweets
+                  .where((t) =>
+                      !seenIds.contains(t.id) &&
+                      (t.mediaUrls.isEmpty ||
+                          !seenMedia.contains(t.mediaUrls.first)))
+                  .toList(),
+              watched));
 
           if (response.tweets.isNotEmpty) {
             await Repository.insertCachedMedia(response.tweets);
@@ -401,6 +529,7 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
             // Chunk exhausted or stuck cursor
             AppLogger.log(
                 'XFLOW: Chunk exhausted or stuck cursor. Rotating to next subscription chunk.');
+            if (response.cursorBottom == null) sourceExhausted = true;
             currentCursor = null;
             chunkRotations++;
             await Future.delayed(const Duration(milliseconds: 300));
@@ -416,8 +545,14 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
         }
       }
 
+      final base = latest();
       if (allNewTweets.isEmpty) {
-        state = AsyncData(state.value!.copyWith(isLoadingMore: false));
+        final latestState = state.value ?? currentState;
+        state = AsyncData(latestState.copyWith(
+          isLoadingMore: false,
+          hasMore: !sourceExhausted,
+          rateLimited: wasRateLimited,
+        ));
         return;
       }
 
@@ -429,7 +564,7 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
           .map((t) => t.copyWith(source: t.source ?? 'Mixed'))
           .toList();
 
-      var combined = [...state.value!.tweets, ...finalNewTweets];
+      var combined = [...base, ...finalNewTweets];
 
       // Apply diversity enforcement to the new tail
       combined = DiscoveryEngine.applySaturation(
@@ -437,7 +572,7 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
         threshold: settings.saturationThreshold,
         mediaThreshold: settings.mediaSaturationThreshold,
         windowSize: settings.saturationWindow,
-        startIndex: state.value!.tweets.length,
+        startIndex: base.length,
         maxSaturationSwaps: settings.maxSaturationSwaps,
         maxPasses: settings.maxSaturationPasses,
       );
@@ -449,20 +584,26 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
           combined,
           playedByUser,
           lookahead: settings.unseenBoostLookahead,
-          startIndex: state.value!.tweets.length,
+          startIndex: base.length,
         );
       }
 
-      state = AsyncData(state.value!.copyWith(
+      state = AsyncData(FeedState(
         tweets: combined,
         cursorBottom: currentCursor,
         isLoadingMore: false,
+        hasMore: !sourceExhausted,
+        rateLimited: wasRateLimited,
+        isRefreshing: currentState.isRefreshing,
       ));
       debugPrint(
           'XFLOW: fetchMore complete. Added ${finalNewTweets.length} tweets. Total: ${combined.length}');
     } catch (e, st) {
       debugPrint('Error fetching more: $e\n$st');
-      state = AsyncData(state.value!.copyWith(isLoadingMore: false));
+      final latestState = state.value;
+      if (latestState != null) {
+        state = AsyncData(latestState.copyWith(isLoadingMore: false));
+      }
     }
   }
 
@@ -495,7 +636,10 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
 
     if (!success) {
       // Revert on failure
-      final currentAsync = ref.read(feedNotifierProvider);
+      // Reading this provider from inside itself trips Riverpod's
+      // "A provider cannot depend on itself" assertion; `state` is the same
+      // (and fresher) value.
+      final currentAsync = state;
       if (currentAsync.hasValue) {
         final latestState = currentAsync.value!;
         final idx = latestState.tweets.indexWhere((t) => t.id == tweetId);
@@ -506,10 +650,21 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
         }
       }
       AppLogger.log('XFLOW: Failed to toggle like for $tweetId, reverted.');
-    } else {
-      AppLogger.log(
-          'XFLOW: Successfully toggled like for $tweetId to $newIsLiked');
+      return;
     }
+
+    // Persist so the like survives the item being re-read from the cache. It
+    // used to live only in memory: the same tweet coming back from the local
+    // pool showed "0 likes / not liked" again.
+    try {
+      await Repository.updateLikeState(tweetId,
+          isLiked: newIsLiked,
+          favoriteCount: updatedTweet.favoriteCount);
+    } catch (e) {
+      AppLogger.log('XFLOW: Could not persist like for $tweetId: $e');
+    }
+    AppLogger.log(
+        'XFLOW: Successfully toggled like for $tweetId to $newIsLiked');
   }
 }
 
