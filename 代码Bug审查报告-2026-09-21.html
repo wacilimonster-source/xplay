@@ -138,7 +138,12 @@ kbd{background:#0b0e15;border:1px solid var(--line);border-radius:4px;padding:1p
     <tr><td>37</td><td>测试套件不可编译</td><td>✅ 已修</td><td>9 处替身签名同步、3 个文件补齐依赖；顺带修掉 5 个历史遗留失败断言（英文 UI 文案、setUp 自相矛盾、webview 平台未注册）</td></tr>
     <tr><td>38</td><td>跨 await 用 context</td><td>✅ 已修</td><td>分享前缓存 messenger，用 State 的 <code>mounted</code> 守卫</td></tr>
     <tr><td>39</td><td>静态分析被本地 SDK 淹没 / APK 入库</td><td>🟡 部分</td><td>已在 <code>analysis_options.yaml</code> 排除 <code>flutter_sdk/**</code>（744 秒 25510 条 → 2 秒 20 条）。<b>需要你执行</b>：<code>git rm --cached xflow_v0.31_filter_fix.apk</code> 并在 .gitignore 补 <code>*.apk</code>（涉及版本库历史，我没代做）</td></tr>
+    <tr><td>40</td><td><b>发版前新发现</b>：update.json 的 APK 直链缺 <code>v</code> 前缀</td><td>✅ 已修 + 实测</td><td>0.1.31 起 tag 改为 <code>v0.1.31</code>，但清单仍写 <code>download/0.1.31/</code> → 实测 <b>404</b>（<code>download/v0.1.31/</code> 为 200）。即整个 0.1.31 周期里，用户点"检查更新 → 下载"必然失败。本轮清单已用 <code>v0.1.32</code>，并让兜底 URL 同时尝试两种 tag</td></tr>
   </table>
+  <div class="note" style="margin-top:14px">
+    <b>发版记录（2026-09-22）</b>：版本 0.1.31+31 → <b>0.1.32+32</b>；提交 <code>85672dc</code>；tag <code>v0.1.32</code> 与 main 均已推送，GitHub Actions（Build and publish Android release）已由 tag 触发。
+    门控记录：analyze <b>0 error / 0 warning</b>（20 条 info）；<code>flutter test</code> <b>73 通过 / 1 跳过 / 0 失败</b>（连续两次一致）；<code>flutter build apk --release --target-platform android-arm64</code> <b>成功</b>（32.2MB，本地 key.properties 正式签名）。
+  </div>
   <p style="color:var(--tx2);font-size:13.5px;margin-top:10px">本轮修的过程中另外发现并一并修掉的问题：关注列表"在途请求"去重只按单一槽位（不同账号会串号）、设置每次变化都 <code>new TwitterClient()</code>（丢掉客户端状态）、Riverpod 3 下 provider 读自身与在 <code>dispose()</code> 里用 <code>ref</code>（会让页面卸载时抛断言）、以及 WebView 平台实现缺失时整页崩溃（现降级为"仅抓取功能不可用"）。</p>
 </section>
 
