@@ -396,13 +396,10 @@ class SubscriptionListScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        leading: isStandalone
-            ? null
-            : IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () =>
-                    ref.read(navigationProvider.notifier).back(),
-              ),
+        // 作为底部标签页嵌在 IndexedStack 里时没有可返回的上一层：
+        // navigationProvider.back() 在这里是空操作，按钮只是占位并挤住标题。
+        // 独立页（Navigator 推入）则交给 AppBar 自动生成的返回箭头。
+        leading: isStandalone ? null : const SizedBox.shrink(),
         title: const Text('订阅'),
         actions: [
           if (!isStandalone)
@@ -414,12 +411,16 @@ class SubscriptionListScreen extends ConsumerWidget {
               ),
             ),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(80),
-          child: _buildSearchAndSort(context, ref),
-        ),
       ),
-      body: content,
+      // 搜索 + 排序条原先塞在 AppBar 的 bottom: 里，声明高度 80 小于实际内容
+      // （约 112），Flutter 会把超出的部分居中溢出，于是搜索框压在标题行上。
+      // 放到 body 顶部后不再需要维护这个魔法数字。
+      body: Column(
+        children: [
+          _buildSearchAndSort(context, ref),
+          Expanded(child: content),
+        ],
+      ),
     );
   }
 
