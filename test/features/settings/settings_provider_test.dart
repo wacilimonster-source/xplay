@@ -6,6 +6,22 @@ import 'package:xplay/features/settings/settings_provider.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('provider builds once, not once per watcher', () {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    // The report assumed `build()` (and its 60+ preference reads) ran for every
+    // watcher. It does not: a Notifier is built once per container, so repeated
+    // `ref.watch` from the settings pages costs no preference reads. This pins
+    // that down so the claim stays checkable instead of "optimised" blindly.
+    final firstState = container.read(settingsProvider);
+    final againState = container.read(settingsProvider);
+    expect(identical(firstState, againState), isTrue);
+    expect(identical(container.read(settingsProvider.notifier),
+        container.read(settingsProvider.notifier)), isTrue);
+  });
+
   group('SettingsNotifier Persistence Tests', () {
     setUp(() async {
       SharedPreferences.setMockInitialValues({

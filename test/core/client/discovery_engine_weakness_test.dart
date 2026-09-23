@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xplay/core/client/discovery_engine.dart';
 import 'package:xplay/core/models/tweet.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 void main() {
   Tweet createTweet(String id, String handle) {
@@ -65,7 +66,7 @@ void main() {
       final result =
           DiscoveryEngine.applySaturation(tweets, threshold: 1, windowSize: 2);
 
-      print('Result handles: ${result.map((t) => t.userHandle).toList()}');
+      debugPrint('Result handles: ${result.map((t) => t.userHandle).toList()}');
 
       bool hasConsecutive = false;
       for (int i = 0; i < result.length - 1; i++) {

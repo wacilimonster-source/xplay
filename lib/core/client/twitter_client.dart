@@ -361,6 +361,7 @@ class TwitterClient {
             legacy['profile_image_url_https'] ??
             userRes['user_results']?['result']?['avatar']?['image_url'];
         AppLogger.log('Successfully fetched profile for @$screenName');
+        QueryIdResolver.promoteVerified('UserByScreenName', path);
         return Subscription(
           id: userId ?? screenName,
           screenName: legacy['screen_name'] ?? screenName,
@@ -893,6 +894,9 @@ final userResult =
           continue;
         }
         sawValidResponse = true;
+        // Remember which candidate worked so the next request does not have to
+        // re-walk the expired ones.
+        QueryIdResolver.promoteVerified('SearchTimeline', path);
 
         final tweetResponse = _parseTweets(timeline);
 
@@ -918,6 +922,12 @@ final userResult =
       // No candidate produced a usable answer. `allPathsFailed` distinguishes
       // "everything is broken" from "this query genuinely has no tweets", so
       // callers only fall back to a different content source when justified.
+      if (!sawValidResponse) {
+        // Stop hammering ids that are demonstrably expired: mark them stale (so
+        // the WebView capture runs again) and back off briefly.
+        QueryIdResolver.markStale('SearchTimeline');
+        _handleRateLimit('SearchTimeline', 2);
+      }
       return TweetResponse(tweets: [], allPathsFailed: !sawValidResponse);
     } catch (e) {
       AppLogger.log('Exception in fetchTrendingMedia: $e');
@@ -1184,6 +1194,7 @@ final userResult =
         }
 
         AppLogger.log('Successfully fetched user timeline for userId: $userId');
+        QueryIdResolver.promoteVerified('UserTweets', path);
         // Use the deep-search parser so UserTweets structure changes
         // (e.g. missing timeline_v2) don't silently return empty.
         final tweetResponse = _parseAgnosticTimeline(data);
@@ -1327,6 +1338,7 @@ final userResult =
           return TweetResponse(tweets: []);
         }
 
+        QueryIdResolver.promoteVerified('TweetDetail', path);
         final tweetResponse = _parseAgnosticTimeline(result);
         _logTimelineResult(
           'fetchTweetDetail',

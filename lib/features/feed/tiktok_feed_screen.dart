@@ -2,11 +2,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../player/player_pool_provider.dart';
 import 'feed_provider.dart';
 import '../player/widgets/media_container.dart';
 import '../../core/models/tweet.dart';
 import '../../core/database/repository.dart';
+import '../../core/utils/media_cache_manager.dart';
 import '../../core/utils/lifecycle_provider.dart';
 import '../settings/settings_screen.dart';
 import '../settings/settings_provider.dart';
@@ -173,7 +175,15 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
               pool.warmup(tweet.id, tweet.mediaUrls.first, scope: poolScope);
             } else if (tweet.mediaUrls.isNotEmpty) {
               for (final url in tweet.mediaUrls) {
-                precacheImage(NetworkImage(url), context);
+                // Must match how the item loads it: `NetworkImage` goes through
+                // the default cache, while the gallery reads from
+                // CustomMediaCacheManager - so this used to warm a cache nobody
+                // read from and still showed a spinner on entry.
+                precacheImage(
+                    CachedNetworkImageProvider(url,
+                        cacheManager:
+                            CustomMediaCacheManager.getInstance()),
+                    context);
               }
             }
           }
@@ -227,7 +237,8 @@ class _TiktokFeedScreenState extends ConsumerState<TiktokFeedScreen> {
   Widget _buildMediaFeed() {
     final feedAsync = ref.watch(feedNotifierProvider);
     final nav = ref.watch(navigationProvider);
-    final appActive = ref.watch(lifecycleProvider) == AppLifecycle.resumed;
+    final appActive = ref.watch(
+        lifecycleProvider.select((l) => l == AppLifecycle.resumed));
     final isScreenActive = nav.selectedUser == null &&
         nav.selectedHashtag == null &&
         nav.currentTab == MainTab.media;
@@ -424,7 +435,10 @@ class TiktokFeedItem extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(settingsProvider);
+    // Only the debug overlay depends on settings here; watching the whole state
+    // rebuilt every video card whenever an unrelated preference changed.
+    final showDebugInfo =
+        ref.watch(settingsProvider.select((s) => s.showDebugInfo));
 
     return RepaintBoundary(
       child: Stack(
@@ -442,7 +456,7 @@ class TiktokFeedItem extends ConsumerWidget {
             ),
             onPlaybackError: onPlaybackError,
           ),
-          if (settings.showDebugInfo) DiscoveryDebugOverlay(tweet: tweet),
+          if (showDebugInfo) DiscoveryDebugOverlay(tweet: tweet),
         ],
       ),
     );
@@ -466,7 +480,7 @@ class DiscoveryDebugOverlay extends ConsumerWidget {
         builder: (context, snapshot) {
           final stats = snapshot.data ?? (0, 0);
           return Card(
-            color: Colors.black.withOpacity(0.6),
+            color: Colors.black.withValues(alpha: 0.6),
             child: Padding(
               padding: const EdgeInsets.all(8),
               child: Column(

@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/navigation/navigation_provider.dart';
+import '../../core/utils/media_cache_manager.dart';
 import '../../core/utils/lifecycle_provider.dart';
 import '../player/player_pool_provider.dart';
 import 'profile_provider.dart';
@@ -156,7 +158,11 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
             pool.warmup(tweet.id, tweet.mediaUrls.first, scope: poolScope);
           } else if (tweet.mediaUrls.isNotEmpty) {
             for (final url in tweet.mediaUrls) {
-              precacheImage(NetworkImage(url), context);
+              // Same manager the gallery reads from, otherwise the warm-up is lost.
+              precacheImage(
+                  CachedNetworkImageProvider(url,
+                      cacheManager: CustomMediaCacheManager.getInstance()),
+                  context);
             }
           }
         }
@@ -168,7 +174,8 @@ class _UserMediaFeedScreenState extends ConsumerState<UserMediaFeedScreen> {
   @override
   Widget build(BuildContext context) {
     final feedAsync = ref.watch(userMediaNotifierProvider(widget.screenName));
-    final appActive = ref.watch(lifecycleProvider) == AppLifecycle.resumed;
+    final appActive = ref.watch(
+        lifecycleProvider.select((l) => l == AppLifecycle.resumed));
 
     // Listen for data arrival to handle initial index adjustment if list shifted
     ref.listen(userMediaNotifierProvider(widget.screenName), (prev, next) {

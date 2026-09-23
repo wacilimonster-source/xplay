@@ -49,9 +49,9 @@ class _TweetTextOverlayState extends ConsumerState<TweetTextOverlay> {
                 end: Alignment.bottomCenter,
                 colors: [
                   Colors.transparent,
-                  Colors.black.withOpacity(0.2),
-                  Colors.black.withOpacity(0.5),
-                  Colors.black.withOpacity(0.8),
+                  Colors.black.withValues(alpha: 0.2),
+                  Colors.black.withValues(alpha: 0.5),
+                  Colors.black.withValues(alpha: 0.8),
                 ],
                 stops: const [0.0, 0.3, 0.6, 1.0],
               ),
@@ -258,7 +258,7 @@ class _TweetTextOverlayState extends ConsumerState<TweetTextOverlay> {
             },
             icon: const Icon(Icons.add, color: Colors.white, size: 20),
             style: IconButton.styleFrom(
-              backgroundColor: Colors.blueAccent.withOpacity(0.6),
+              backgroundColor: Colors.blueAccent.withValues(alpha: 0.6),
               visualDensity: VisualDensity.compact,
               padding: EdgeInsets.zero,
             ),

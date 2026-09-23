@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,12 +28,28 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
 
+  // The database is opened concurrently but the UI only waits a bounded amount
+  // of time for it: a first launch after an upgrade can spend seconds in
+  // migration, and blocking runApp on that turned into a blank screen. If it
+  // does fail, the error surfaces through the same error page below.
+  final databaseOpening = Repository.database;
+  // Absorb the error on this extra listener so a failed open can never become an
+  // unhandled async error; the awaited copy below is what decides whether to
+  // show the startup error page.
+  databaseOpening.then<void>((_) {}, onError: (Object e) {
+    debugPrint('XFLOW: database open failed: $e');
+  });
   try {
     await Future.wait([
       TwitterAccount.init(),
       QueryIdResolver.init(),
-      Repository.database,
     ]);
+    await databaseOpening.timeout(const Duration(seconds: 3));
+  } on TimeoutException {
+    // A first launch after an upgrade can spend seconds migrating; continuing
+    // without the database is better than a blank screen, and the feed reports
+    // its own error if the open ultimately fails.
+    debugPrint('XFLOW: database still opening after 3s; continuing launch.');
   } catch (e, st) {
     // A failed init used to leave the process before `runApp`, so the user saw
     // nothing but a black screen with no way out and no log.

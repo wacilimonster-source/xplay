@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xplay/core/client/discovery_engine.dart';
 import 'package:xplay/core/models/tweet.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 void main() {
   Tweet createTweet(String id, String handle, {String? mediaUrl}) {
@@ -23,7 +24,7 @@ void main() {
       final result =
           DiscoveryEngine.applySaturation(tweets, threshold: 1, windowSize: 10);
 
-      print('Handles: ${result.map((t) => t.userHandle).toList()}');
+      debugPrint('Handles: ${result.map((t) => t.userHandle).toList()}');
       // Should remain all user_a, but we should verify it didn't crash
       expect(result.length, 10);
       expect(result.every((t) => t.userHandle == 'user_a'), isTrue);
@@ -44,7 +45,7 @@ void main() {
       final result =
           DiscoveryEngine.applySaturation(tweets, threshold: 1, windowSize: 5);
 
-      print('Tail handles: ${result.map((t) => t.userHandle).toList()}');
+      debugPrint('Tail handles: ${result.map((t) => t.userHandle).toList()}');
       // WEAKNESS: It cannot fix the tail.
       expect(result[4].userHandle, 'user_a');
       expect(result[3].userHandle, 'user_a');

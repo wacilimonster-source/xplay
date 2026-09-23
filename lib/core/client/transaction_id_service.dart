@@ -21,6 +21,18 @@ class TransactionIdService {
   bool _isReady = false;
   bool _scriptInstalled = false;
 
+  /// Reuses a generated id for repeated calls to the same `method + path`.
+  ///
+  /// The embedded generator packs a *second-granularity* timestamp
+  /// (`Math.floor((Date.now() - 1682924400000) / 1e3)`) into the token, so the
+  /// safe reuse window is seconds, not minutes: a 5-minute cache (as suggested
+  /// in the optimisation report) would send stale ids and get 403s. 20s still
+  /// collapses bursts such as `fetchMore`, which hits the same SearchTimeline
+  /// path repeatedly within a few seconds.
+  final Map<String, _CachedTxId> _txIdCache = {};
+  static const Duration _txIdTtl = Duration(seconds: 20);
+  static const int _txIdCacheLimit = 64;
+
   void attachController(WebViewController controller) {
     _controller = controller;
     _scriptInstalled = false;
@@ -30,8 +42,13 @@ class TransactionIdService {
     _isReady = ready;
     if (!ready) {
       _scriptInstalled = false;
+      _txIdCache.clear();
     }
   }
+
+  /// Drops cached ids. Called when X rejects a request, so a token that turned
+  /// out to be unusable is never replayed.
+  void invalidateTxIdCache() => _txIdCache.clear();
 
   /// Every x.com page load resets the JS context, wiping the injected
   /// generator. Re-install it (idempotent) so the local channel survives
@@ -41,6 +58,9 @@ class TransactionIdService {
     try {
       await controller.runJavaScript(_transactionIdGeneratorScript);
       _scriptInstalled = true;
+      // New page context means a new fingerprint; previously issued ids from the
+      // old context must not be replayed.
+      _txIdCache.clear();
     } catch (_) {
       _scriptInstalled = false;
     }
@@ -53,6 +73,14 @@ class TransactionIdService {
       return null;
     }
 
+    final cacheKey = '$method:$path';
+    final now = DateTime.now();
+    final cached = _txIdCache[cacheKey];
+    if (cached != null) {
+      if (now.isBefore(cached.expiresAt)) return cached.id;
+      _txIdCache.remove(cacheKey);
+    }
+
     try {
       await _ensureScriptInstalled(controller);
       final rawResult = await controller.runJavaScriptReturningResult('''
@@ -63,7 +91,12 @@ class TransactionIdService {
           );
         })();
       ''');
-      return normalizeJavaScriptResult(rawResult);
+      final id = normalizeJavaScriptResult(rawResult);
+      if (id != null) {
+        if (_txIdCache.length >= _txIdCacheLimit) _txIdCache.clear();
+        _txIdCache[cacheKey] = _CachedTxId(id, now.add(_txIdTtl));
+      }
+      return id;
     } catch (e) {
       AppLogger.log('TXID local generation failed: ${e.runtimeType}: $e');
       return null;
@@ -108,7 +141,8 @@ class _TransactionIdWebViewHostState
   WebViewController? _controllerOrNull;
   WebViewController get _controller => _controllerOrNull!;
   String? _loadedAccountId;
-  bool _captureStarted = false;
+  bool _captureRunning = false;
+  bool _captureSatisfied = false;
 
   @override
   void initState() {
@@ -157,44 +191,65 @@ class _TransactionIdWebViewHostState
   /// through a few pages so x.com generates the real (current) GraphQL query
   /// IDs for the operations xflow needs. Captured IDs are persisted and reused.
   void _maybeStartQueryIdCapture() {
-    if (_captureStarted) return;
-    _captureStarted = true;
-    _runQueryIdCaptureSequence();
+    if (_captureRunning) return;
+    // Persisted live ids are still fresh (14 days): skip the whole walk. This is
+    // the difference between a 20-25s first-run cost on every launch and only on
+    // the launches that actually need it.
+    if (_captureSatisfied && !QueryIdResolver.needsCapture) return;
+    _captureRunning = true;
+    _runQueryIdCaptureSequence().whenComplete(() => _captureRunning = false);
+  }
+
+  /// Navigates to [url] and polls for the required query ids, returning as soon
+  /// as they have all been seen — instead of a fixed 5s + 2s per page.
+  Future<void> _captureOnPage(
+      WebViewController controller, String url, Duration budget) async {
+    try {
+      await controller
+          .runJavaScript(QueryIdResolver.captureScript)
+          .catchError((_) {});
+      await controller.loadRequest(Uri.parse(url));
+      final deadline = DateTime.now().add(budget);
+      while (DateTime.now().isBefore(deadline)) {
+        await Future.delayed(const Duration(milliseconds: 700));
+        await QueryIdResolver.captureNow(controller);
+        if (QueryIdResolver.isCaptureComplete) return;
+      }
+    } catch (e) {
+      AppLogger.log('XFLOW: query-id capture on $url failed: ${e.runtimeType}');
+    }
   }
 
   Future<void> _runQueryIdCaptureSequence() async {
+    final controller = _controllerOrNull;
+    if (controller == null) return;
     try {
-      final controller = _controller;
+      final missingBefore = QueryIdResolver.missingRequired().length;
       // Install hook + capture whatever the home timeline already produced.
       await QueryIdResolver.captureFromWebView(controller);
-      final pages = <String>[
+      const supplementPages = <String>[
         'https://x.com/search?q=test&f=live',
         'https://x.com/x',
         'https://x.com/i/bookmarks',
       ];
-      for (final page in pages) {
-        try {
-          // Re-install hook before navigation (onPageStarted does this too,
-          // but belt-and-suspenders).
-          await controller.runJavaScript(QueryIdResolver.captureScript)
-              .catchError((_) {});
-          await controller.loadRequest(Uri.parse(page));
-          // Wait longer for x.com's SPA to hydrate and fire GraphQL requests.
-          await Future.delayed(const Duration(seconds: 5));
-          // Re-install hook (page context may have reset) and read results.
-          await controller.runJavaScript(QueryIdResolver.captureScript)
-              .catchError((_) {});
-          await Future.delayed(const Duration(seconds: 2));
-          await QueryIdResolver.captureFromWebView(controller);
-        } catch (_) {}
+      for (final page in supplementPages) {
+        if (QueryIdResolver.isCaptureComplete) break;
+        await _captureOnPage(controller, page, const Duration(seconds: 6));
+      }
+
+      final missing = QueryIdResolver.missingRequired();
+      _captureSatisfied = missing.isEmpty;
+      if (missing.isNotEmpty) {
+        AppLogger.log('XFLOW: query-id capture still missing: '
+            '${missing.join(', ')} (will retry on next page load)');
       }
       // Return to home so the transaction-id probe keeps working.
       await controller.loadRequest(Uri.parse(LoginScreen.homeUrl));
       AppLogger.log('XFLOW: Query-ID capture sequence complete. '
           'Known ops: ${QueryIdResolver.all.keys.join(', ')}');
-      // Capture completed with fresh IDs — refresh the feed so it re-fetches with new IDs.
-      // Using ref.invalidate on autoDispose provider triggers one fresh fetch without blocking current playback.
-      if (mounted) {
+      // Only rebuild the feed when this walk actually unlocked new ids, so a
+      // routine page load no longer costs a full refetch.
+      if (mounted && QueryIdResolver.missingRequired().length < missingBefore) {
         ref.invalidate(feedNotifierProvider);
       }
     } catch (e) {
@@ -399,3 +454,9 @@ const String _transactionIdGeneratorScript = r'''
   window.__xflowGenerateTransactionId = W();
 })();
 ''';
+
+class _CachedTxId {
+  _CachedTxId(this.id, this.expiresAt);
+  final String id;
+  final DateTime expiresAt;
+}

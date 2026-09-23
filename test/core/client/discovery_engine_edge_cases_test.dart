@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xplay/core/client/discovery_engine.dart';
 import 'package:xplay/core/models/tweet.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 void main() {
   Tweet createTweet(String id, String handle, {String? mediaUrl}) {
@@ -25,7 +26,7 @@ void main() {
       final result =
           DiscoveryEngine.applySaturation(tweets, threshold: 1, windowSize: 5);
 
-      print('Handles: ${result.map((t) => t.userHandle).toList()}');
+      debugPrint('Handles: ${result.map((t) => t.userHandle).toList()}');
       bool hasDuplicateInWindow = result[0].userHandle.toLowerCase() ==
           result[1].userHandle.toLowerCase();
 
@@ -46,7 +47,7 @@ void main() {
       final result = DiscoveryEngine.applySaturation(tweets,
           threshold: 1, mediaThreshold: 1, windowSize: 5);
 
-      print('Media URLs: ${result.map((t) => t.mediaUrls.first).toList()}');
+      debugPrint('Media URLs: ${result.map((t) => t.mediaUrls.first).toList()}');
 
       bool hasDuplicateMedia = false;
       for (int i = 0; i < result.length - 1; i++) {
@@ -70,7 +71,7 @@ void main() {
       final result =
           DiscoveryEngine.applySaturation(tweets, threshold: 1, windowSize: 5);
 
-      print(
+      debugPrint(
           'Indices 0-5 handles: ${result.sublist(0, 5).map((t) => t.userHandle).toList()}');
 
       // Verify if it managed to pull non-'a' items up

@@ -134,41 +134,84 @@ class DiscoveryEngine {
       int maxPasses = 3}) {
     if (tweets.isEmpty) return tweets;
     final result = List<Tweet>.from(tweets);
+    final length = result.length;
+
+    // Handle/media identity is normalised once per item and then kept in sync
+    // with `result` on every swap. Previously each position re-normalised the
+    // whole preceding window (`window.where((t) => _normalizeHandle(...)`) for
+    // itself *and* for every swap candidate, which is O(n x windowSize x
+    // lookahead) work per pass.
+    final handles = List<String?>.generate(
+        length, (i) => _normalizeHandle(result[i].userHandle));
+    final mediaUrls = List<String?>.generate(
+        length,
+        (i) =>
+            result[i].mediaUrls.isNotEmpty ? result[i].mediaUrls.first : null);
+
+    final handleCounts = <String, int>{};
+    final mediaCounts = <String, int>{};
+
+    void windowAdd(int index) {
+      final handle = handles[index];
+      if (handle != null) {
+        handleCounts[handle] = (handleCounts[handle] ?? 0) + 1;
+      }
+      final media = mediaUrls[index];
+      if (media != null) {
+        mediaCounts[media] = (mediaCounts[media] ?? 0) + 1;
+      }
+    }
+
+    void windowRemove(int index) {
+      final handle = handles[index];
+      if (handle != null) {
+        final left = (handleCounts[handle] ?? 1) - 1;
+        if (left <= 0) {
+          handleCounts.remove(handle);
+        } else {
+          handleCounts[handle] = left;
+        }
+      }
+      final media = mediaUrls[index];
+      if (media != null) {
+        final left = (mediaCounts[media] ?? 1) - 1;
+        if (left <= 0) {
+          mediaCounts.remove(media);
+        } else {
+          mediaCounts[media] = left;
+        }
+      }
+    }
 
     int totalSwaps = 0;
 
     // Multi-pass sweep: Subsequent passes resolve clumps created by previous swaps.
     for (int pass = 0; pass < maxPasses; pass++) {
       int passSwaps = 0;
+      handleCounts.clear();
+      mediaCounts.clear();
+      // Seed the window with whatever precedes startIndex (the original counted
+      // from max(0, i - windowSize), so items before startIndex do count).
+      final seedFrom = (startIndex - windowSize).clamp(0, length);
+      for (int k = seedFrom; k < startIndex && k < length; k++) {
+        windowAdd(k);
+      }
+
+      int windowLeft = seedFrom;
+
       for (int i = startIndex;
-          i < result.length && totalSwaps < maxSaturationSwaps;
+          i < length && totalSwaps < maxSaturationSwaps;
           i++) {
-        final handle = _normalizeHandle(result[i].userHandle);
-        final mediaUrl =
-            result[i].mediaUrls.isNotEmpty ? result[i].mediaUrls.first : null;
+        final handle = handles[i];
+        final mediaUrl = mediaUrls[i];
 
-        // Define the sliding window of items preceding the current index
-        final start = (i - windowSize).clamp(0, result.length);
-        final window = result.sublist(start, i);
-
-        // Count occurrences of current item's identity in the preceding window
-        final handleCount = window
-            .where((t) => _normalizeHandle(t.userHandle) == handle)
-            .length;
-        final mediaCount = mediaUrl != null
-            ? window
-                .where((t) =>
-                    t.mediaUrls.isNotEmpty && t.mediaUrls.first == mediaUrl)
-                .length
-            : 0;
+        final handleCount = handle == null ? 0 : (handleCounts[handle] ?? 0);
+        final mediaCount = mediaUrl == null ? 0 : (mediaCounts[mediaUrl] ?? 0);
 
         // Hard rule: No consecutive duplicates (even if threshold > 1)
-        final isConsecutive =
-            i > 0 && _normalizeHandle(result[i - 1].userHandle) == handle;
-        final isMediaConsecutive = i > 0 &&
-            mediaUrl != null &&
-            result[i - 1].mediaUrls.isNotEmpty &&
-            result[i - 1].mediaUrls.first == mediaUrl;
+        final isConsecutive = i > 0 && handles[i - 1] == handle;
+        final isMediaConsecutive =
+            i > 0 && mediaUrl != null && mediaUrls[i - 1] == mediaUrl;
 
         // If any diversity rule is violated, search forward for a valid swap candidate
         if (handleCount >= threshold ||
@@ -179,9 +222,9 @@ class DiscoveryEngine {
 
           // First pass: lookahead search for a perfect candidate
           final lookahead = windowSize + 10;
-          for (int j = i + 1; j < result.length && j < i + lookahead; j++) {
-            if (_isValidSwap(
-                result, i, j, threshold, mediaThreshold, windowSize)) {
+          for (int j = i + 1; j < length && j < i + lookahead; j++) {
+            if (_isValidCached(handles, mediaUrls, handleCounts, mediaCounts,
+                result, i, j, threshold, mediaThreshold)) {
               swapIdx = j;
               break;
             }
@@ -189,9 +232,9 @@ class DiscoveryEngine {
 
           // Second pass: if no perfect candidate in lookahead, search the entire remaining list
           if (swapIdx == -1) {
-            for (int j = i + 1; j < result.length; j++) {
-              if (_isValidSwap(
-                  result, i, j, threshold, mediaThreshold, windowSize)) {
+            for (int j = i + 1; j < length; j++) {
+              if (_isValidCached(handles, mediaUrls, handleCounts, mediaCounts,
+                  result, i, j, threshold, mediaThreshold)) {
                 swapIdx = j;
                 break;
               }
@@ -202,9 +245,24 @@ class DiscoveryEngine {
             final temp = result[i];
             result[i] = result[swapIdx];
             result[swapIdx] = temp;
+            // Keep the cached identity in step with the swap. Index i has not
+            // been added to the window yet and swapIdx is ahead of it, so the
+            // window maps stay correct without further edits.
+            final h = handles[i];
+            handles[i] = handles[swapIdx];
+            handles[swapIdx] = h;
+            final m = mediaUrls[i];
+            mediaUrls[i] = mediaUrls[swapIdx];
+            mediaUrls[swapIdx] = m;
             passSwaps++;
             totalSwaps++;
           }
+        }
+
+        windowAdd(i);
+        if (i - windowLeft + 1 > windowSize) {
+          windowRemove(windowLeft);
+          windowLeft++;
         }
       }
       // If a full pass resulted in zero swaps, the list is perfectly diverse.
@@ -218,34 +276,32 @@ class DiscoveryEngine {
     return result;
   }
 
-  static bool _isValidSwap(List<Tweet> result, int i, int j, int threshold,
-      int mediaThreshold, int windowSize) {
-    final candHandle = _normalizeHandle(result[j].userHandle);
-    final candMedia =
-        result[j].mediaUrls.isNotEmpty ? result[j].mediaUrls.first : null;
-    final prevHandle =
-        i > 0 ? _normalizeHandle(result[i - 1].userHandle) : null;
-    final prevMedia = i > 0 && result[i - 1].mediaUrls.isNotEmpty
-        ? result[i - 1].mediaUrls.first
-        : null;
+  /// Reads the pre-computed identity arrays and the live sliding-window
+  /// counters instead of re-scanning the window.
+  static bool _isValidCached(
+      List<String?> handles,
+      List<String?> mediaUrls,
+      Map<String, int> handleCounts,
+      Map<String, int> mediaCounts,
+      List<Tweet> result,
+      int i,
+      int j,
+      int threshold,
+      int mediaThreshold) {
+    final candHandle = handles[j];
+    final candMedia = mediaUrls[j];
+    final prevHandle = i > 0 ? handles[i - 1] : null;
+    final prevMedia = i > 0 ? mediaUrls[i - 1] : null;
 
     // Must not create a consecutive duplicate
     if (candHandle == prevHandle) return false;
     if (candMedia != null && candMedia == prevMedia) return false;
 
     // Must not violate saturation rules in its new window at position i
-    final candStart = (i - windowSize).clamp(0, result.length);
-    final candWindow = result.sublist(candStart, i);
-
-    final candHandleCount = candWindow
-        .where((t) => _normalizeHandle(t.userHandle) == candHandle)
-        .length;
-    final candMediaCount = candMedia != null
-        ? candWindow
-            .where(
-                (t) => t.mediaUrls.isNotEmpty && t.mediaUrls.first == candMedia)
-            .length
-        : 0;
+    final candHandleCount =
+        candHandle == null ? 0 : (handleCounts[candHandle] ?? 0);
+    final candMediaCount =
+        candMedia == null ? 0 : (mediaCounts[candMedia] ?? 0);
 
     return candHandleCount < threshold && candMediaCount < mediaThreshold;
   }

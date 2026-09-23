@@ -522,7 +522,10 @@ class UserDetailSettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(settingsProvider);
+    // Narrow watch: this page renders exactly one preference, so unrelated
+    // slider drags elsewhere no longer rebuild it.
+    final userDetailAvoidWatchedContent = ref
+        .watch(settingsProvider.select((s) => s.userDetailAvoidWatchedContent));
     final notifier = ref.read(settingsProvider.notifier);
 
     return Scaffold(
@@ -532,7 +535,7 @@ class UserDetailSettingsPage extends ConsumerWidget {
           SwitchListTile(
             title: const Text('过滤已看内容'),
             subtitle: const Text('仅影响用户详情页，默认关闭'),
-            value: settings.userDetailAvoidWatchedContent,
+            value: userDetailAvoidWatchedContent,
             onChanged: (value) {
               notifier.updateUserDetailAvoidWatchedContent(value);
             },
@@ -635,7 +638,12 @@ class SyncSettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(settingsProvider);
+    final (syncInterval, syncBatchSize, cooldownDuration) =
+        ref.watch(settingsProvider.select((s) => (
+              s.syncInterval,
+              s.syncBatchSize,
+              s.cooldownDuration,
+            )));
     final notifier = ref.read(settingsProvider.notifier);
 
     return Scaffold(
@@ -645,7 +653,7 @@ class SyncSettingsPage extends ConsumerWidget {
           _SliderSetting(
             title: '刷新频率（分钟）',
             subtitle: '应用检查新视频的频率',
-            value: settings.syncInterval.toDouble(),
+            value: syncInterval.toDouble(),
             min: 1,
             max: 120,
             onChanged: (v) => notifier.updateSyncInterval(v.toInt()),
@@ -653,7 +661,7 @@ class SyncSettingsPage extends ConsumerWidget {
           _SliderSetting(
             title: '刷新强度',
             subtitle: '每次刷新会话检查的账户数',
-            value: settings.syncBatchSize.toDouble(),
+            value: syncBatchSize.toDouble(),
             min: 1,
             max: 50,
             onChanged: (v) => notifier.updateSyncBatchSize(v.toInt()),
@@ -661,7 +669,7 @@ class SyncSettingsPage extends ConsumerWidget {
           _SliderSetting(
             title: '账户冷却时间',
             subtitle: '再次检查同一账户前的等待时间',
-            value: settings.cooldownDuration.toDouble(),
+            value: cooldownDuration.toDouble(),
             min: 0,
             max: 240,
             onChanged: (v) => notifier.updateCooldownDuration(v.toInt()),
@@ -683,6 +691,7 @@ class StorageSettingsPage extends ConsumerStatefulWidget {
 class _StorageSettingsPageState extends ConsumerState<StorageSettingsPage> {
   int _metadataCount = 0;
   double _cacheSizeMB = 0;
+  double _otherCacheMB = 0;
   bool _busy = false;
 
   @override
@@ -694,12 +703,25 @@ class _StorageSettingsPageState extends ConsumerState<StorageSettingsPage> {
   /// 统计数字由本页持有。以前是父页面 push 进来的构造参数，
   /// 清完缓存后父页面 setState 也刷新不到已经打开的子页面。
   Future<void> _reload() async {
-    final count = await Repository.getCachedMediaCount();
-    final sizeBytes = await CustomMediaCacheManager.getCacheSize();
+    int count = 0;
+    int ownBytes = 0;
+    int otherBytes = 0;
+    try {
+      count = await Repository.getCachedMediaCount();
+    } catch (e) {
+      debugPrint('XFLOW: cache count unavailable: $e');
+    }
+    try {
+      ownBytes = await CustomMediaCacheManager.getCacheSize();
+      otherBytes = await CustomMediaCacheManager.getOtherCacheSize();
+    } catch (e) {
+      debugPrint('XFLOW: cache size unavailable: $e');
+    }
     if (!mounted) return;
     setState(() {
       _metadataCount = count;
-      _cacheSizeMB = sizeBytes / (1024 * 1024);
+      _cacheSizeMB = ownBytes / (1024 * 1024);
+      _otherCacheMB = otherBytes / (1024 * 1024);
     });
   }
 
@@ -742,8 +764,7 @@ class _StorageSettingsPageState extends ConsumerState<StorageSettingsPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('重置已看记录'),
-        content: const Text(
-            '将清空「已看过」标记和播放计数，看过的内容会重新出现在信息流里。\n'
+        content: const Text('将清空「已看过」标记和播放计数，看过的内容会重新出现在信息流里。\n'
             '数据库中的媒体记录和已下载文件不受影响。'),
         actions: [
           TextButton(
@@ -794,8 +815,12 @@ class _StorageSettingsPageState extends ConsumerState<StorageSettingsPage> {
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           ListTile(
             title: const Text('本地媒体缓存'),
+            // 口径写清楚：这个上限只管图片等走缓存管理器的文件，视频是流式播放
+            // 不落地；头像等属于另一个管理器，只能整体清除、不受该上限约束。
             subtitle: Text(
-                '已用 ${_cacheSizeMB.toStringAsFixed(1)} MB / 限制 ${settings.mediaCacheSizeMB} MB • $_metadataCount 条元数据'),
+                '本应用缓存 ${_cacheSizeMB.toStringAsFixed(1)} MB / 上限 ${settings.mediaCacheSizeMB} MB（不含视频流，视频不落地）'
+                ' • 其他图片缓存 ${_otherCacheMB.toStringAsFixed(1)} MB（清除时一并清掉，不受该上限控制）'
+                ' • 元数据 $_metadataCount 条'),
           ),
           Slider(
             value: settings.mediaCacheSizeMB.toDouble().clamp(100.0, 2000.0),
@@ -825,10 +850,10 @@ class _StorageSettingsPageState extends ConsumerState<StorageSettingsPage> {
             onChanged: (v) => notifier.updatePruneThreshold(v.toInt()),
           ),
           ListTile(
-            leading: const Icon(Icons.history_toggle_off,
-                color: Colors.redAccent),
-            title: const Text('重置已看记录',
-                style: TextStyle(color: Colors.redAccent)),
+            leading:
+                const Icon(Icons.history_toggle_off, color: Colors.redAccent),
+            title:
+                const Text('重置已看记录', style: TextStyle(color: Colors.redAccent)),
             subtitle: const Text('让看过的内容重新出现'),
             enabled: !_busy,
             onTap: _resetWatchedRecords,
@@ -1050,7 +1075,8 @@ class DiagnosticSettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(settingsProvider);
+    final (showDebugInfo, maxSaturationSwaps) = ref.watch(settingsProvider
+        .select((s) => (s.showDebugInfo, s.maxSaturationSwaps)));
     final notifier = ref.read(settingsProvider.notifier);
 
     return Scaffold(
@@ -1060,13 +1086,13 @@ class DiagnosticSettingsPage extends ConsumerWidget {
           SwitchListTile(
             title: const Text('覆盖层来源信息'),
             subtitle: const Text('在视频上显示发现元数据'),
-            value: settings.showDebugInfo,
+            value: showDebugInfo,
             onChanged: (v) => notifier.toggleDebugInfo(v),
           ),
           _SliderSetting(
             title: '算法安全上限',
             subtitle: '多样性逻辑的最大计算次数',
-            value: settings.maxSaturationSwaps.toDouble(),
+            value: maxSaturationSwaps.toDouble(),
             min: 100,
             max: 5000,
             divisions: 49,

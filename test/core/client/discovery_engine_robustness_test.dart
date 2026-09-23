@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xplay/core/client/discovery_engine.dart';
 import 'package:xplay/core/models/tweet.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 void main() {
   Tweet createTweet(String id, String handle, {String? mediaUrl}) {
@@ -29,8 +30,8 @@ void main() {
       final result =
           DiscoveryEngine.applySaturation(tweets, threshold: 1, windowSize: 5);
 
-      print('Handles: ${result.map((t) => t.userHandle).toList()}');
-      print('Media: ${result.map((t) => t.mediaUrls.first).toList()}');
+      debugPrint('Handles: ${result.map((t) => t.userHandle).toList()}');
+      debugPrint('Media: ${result.map((t) => t.mediaUrls.first).toList()}');
 
       // Check Window 0-2
       final window = result.sublist(0, 3);
@@ -54,7 +55,7 @@ void main() {
 
       final result =
           DiscoveryEngine.applySaturation(tweets, threshold: 1, windowSize: 10);
-      print('Final handles: ${result.map((t) => t.userHandle).toList()}');
+      debugPrint('Final handles: ${result.map((t) => t.userHandle).toList()}');
 
       // Index 1 and 2 should no longer be user_a
       expect(result[0].userHandle, 'user_a');

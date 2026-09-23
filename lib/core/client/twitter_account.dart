@@ -11,6 +11,11 @@ import '../database/repository.dart';
 import '../utils/app_logger.dart';
 
 class TwitterAccount {
+  /// One client for the whole app: the top-level `http.get`/`http.post` helpers
+  /// build and close a client per call, so every request paid a fresh TCP+TLS
+  /// handshake even though it hit the same host.
+  static final http.Client _client = http.Client();
+
   static Account? _currentAccount;
   static final FFCache _cache = FFCache();
 
@@ -182,8 +187,9 @@ class TwitterAccount {
         final transactionUri = Uri.http('x-client-transaction-id-generator.xyz',
             '/generate-x-client-transaction-id', {'path': uri.path});
         try {
-          final transactionResponse =
-              await http.get(transactionUri).timeout(const Duration(seconds: 2));
+          final transactionResponse = await _client
+              .get(transactionUri)
+              .timeout(const Duration(seconds: 2));
           if (transactionResponse.statusCode == 200) {
             transactionId =
                 jsonDecode(transactionResponse.body)['x-client-transaction-id'];
@@ -221,17 +227,22 @@ class TwitterAccount {
     final stopwatch = Stopwatch()..start();
     final http.Response response;
     if (method == 'POST') {
-      response = await http
+      response = await _client
           .post(uri, headers: combinedHeaders, body: body)
           .timeout(timeout);
     } else {
-      response = await http
-          .get(uri, headers: combinedHeaders)
-          .timeout(timeout);
+      response =
+          await _client.get(uri, headers: combinedHeaders).timeout(timeout);
     }
     stopwatch.stop();
     AppLogger.log(
         'HTTP request end: $requestSummary status=${response.statusCode} elapsedMs=${stopwatch.elapsedMilliseconds} bytes=${response.bodyBytes.length}');
+
+    if (response.statusCode == 403) {
+      // X rejected the request; whatever transaction id we just sent is not
+      // reusable, so drop the cache instead of replaying it for 20 seconds.
+      TransactionIdService.instance.invalidateTxIdCache();
+    }
 
     if (response.statusCode == 200) {
       // Force UTF-8 decoding for the body string to avoid mangling and caching issues

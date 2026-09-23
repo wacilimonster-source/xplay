@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/database/repository.dart';
 import '../../core/navigation/navigation_provider.dart';
 import '../../core/utils/lifecycle_provider.dart';
+import '../../core/utils/media_cache_manager.dart';
 import '../player/player_pool_provider.dart';
 import '../player/widgets/media_container.dart';
 import '../../core/models/tweet.dart';
@@ -298,6 +300,14 @@ class _HashtagMediaFeedScreenState
           activeIds.add(tweet.id);
           if (tweet.isVideo && tweet.mediaUrls.isNotEmpty) {
             pool.warmup(tweet.id, tweet.mediaUrls.first, scope: poolScope);
+          } else if (tweet.mediaUrls.isNotEmpty) {
+            for (final url in tweet.mediaUrls) {
+              precacheImage(
+                  CachedNetworkImageProvider(url,
+                      cacheManager:
+                          CustomMediaCacheManager.getInstance()),
+                  context);
+            }
           }
         }
       }
@@ -308,7 +318,8 @@ class _HashtagMediaFeedScreenState
   @override
   Widget build(BuildContext context) {
     final feedAsync = ref.watch(hashtagMediaProvider(widget.hashtag));
-    final appActive = ref.watch(lifecycleProvider) == AppLifecycle.resumed;
+    final appActive = ref.watch(
+        lifecycleProvider.select((l) => l == AppLifecycle.resumed));
 
     return Scaffold(
       backgroundColor: Colors.black,

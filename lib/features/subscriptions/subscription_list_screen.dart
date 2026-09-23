@@ -286,8 +286,8 @@ class SubscriptionListScreen extends ConsumerWidget {
             elevation: 0,
             color: Theme.of(context).colorScheme.surfaceContainerLow,
             margin: const EdgeInsets.symmetric(vertical: 4),
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
               onTap: () {
@@ -542,14 +542,11 @@ class _SortChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected
-              ? colorScheme.primaryContainer
-              : Colors.transparent,
+          color: isSelected ? colorScheme.primaryContainer : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isSelected
-                ? colorScheme.primary
-                : colorScheme.outlineVariant,
+            color:
+                isSelected ? colorScheme.primary : colorScheme.outlineVariant,
             width: 1,
           ),
         ),

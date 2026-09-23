@@ -56,6 +56,31 @@ class CustomMediaCacheManager {
     return out;
   }
 
+  /// Bytes held by cache managers other than ours (avatars, detail images).
+  /// Reported separately because `enforceLimit` may only delete our own files:
+  /// yanking another manager's files off disk would leave its index pointing at
+  /// missing entries.
+  static Future<int> getOtherCacheSize() async {
+    try {
+      int total = 0;
+      final seen = <String>{};
+      final tempDir = await getTemporaryDirectory();
+      for (final path in _allDirs(tempDir.path).toSet().difference(_ownDirs(tempDir.path).toSet())) {
+        final dir = Directory(path);
+        if (!await dir.exists()) continue;
+        await for (final entity in dir.list(recursive: true, followLinks: false)) {
+          if (entity is File && seen.add(entity.path)) {
+            total += await entity.length();
+          }
+        }
+      }
+      return total;
+    } catch (e) {
+      debugPrint('Error measuring other cache: $e');
+      return 0;
+    }
+  }
+
   static Future<int> getCacheSize() async {
     try {
       int totalSize = 0;

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:xplay/core/database/entities.dart';
@@ -208,6 +209,60 @@ void main() {
       await Repository.markWatched('w2');
       await Repository.purgeSeenMetadata(clearWatchedList: false);
       expect((await Repository.getWatchedIdentifiers()).contains('w2'), isTrue);
+    });
+
+    /// The doc's verification ask: what does a ten-thousand-row watched list
+    /// actually cost, and does SQL-side filtering agree with the old
+    /// "load everything into a Set" path? Numbers are printed, not asserted,
+    /// because CI machines vary; the equal-result assertions are the guard.
+    test('a 10k watched table filters a page in SQL, reads bounded', () async {
+      final db = await Repository.database;
+      await db.transaction((txn) async {
+        final batch = txn.batch();
+        for (var i = 0; i < 10000; i++) {
+          batch.insert(tableWatchedMedia, {
+            'id': 'seed_$i',
+            'media_key': 'key_$i',
+            'watched_at': 1700000000000 + i,
+          });
+        }
+        await batch.commit(noResult: true);
+      });
+
+      // A page bigger than one SQL chunk, half of it already watched.
+      final page = <Tweet>[
+        for (var i = 0; i < 250; i++)
+          tweet('seed_$i', urls: ['https://p.example/$i.jpg']),
+        for (var i = 0; i < 250; i++)
+          tweet('fresh_$i', urls: ['https://p.example/f$i.jpg']),
+      ];
+
+      final t0 = Stopwatch()..start();
+      final fullSet = await Repository.getWatchedIdentifiers();
+      t0.stop();
+      final t1 = Stopwatch()..start();
+      final boundedSet = await Repository.getWatchedIdentifiers(limit: 2000);
+      t1.stop();
+      final t2 = Stopwatch()..start();
+      final bySql = await Repository.filterUnwatchedInDb(page);
+      t2.stop();
+      final t3 = Stopwatch()..start();
+      final byMemory = Repository.filterUnwatched(page, fullSet);
+      t3.stop();
+
+      expect(fullSet.length, 20000, reason: 'id + media_key per row');
+      expect(boundedSet.length, 4000);
+      expect(boundedSet.contains('seed_9999'), isTrue,
+          reason: 'a limited read must return the most recent rows');
+      expect(boundedSet.contains('seed_0'), isFalse);
+      expect(bySql.length, 250);
+      expect(bySql.map((t) => t.id).toSet(), byMemory.map((t) => t.id).toSet(),
+          reason: 'SQL filtering must agree with the in-memory Set');
+
+      debugPrint('watched_media @10k rows: full '
+          '${t0.elapsedMicroseconds / 1000}ms, bounded(2000) ${t1.elapsedMicroseconds / 1000}ms, '
+          'SQL filter of a 500-item page ${t2.elapsedMicroseconds / 1000}ms, '
+          'in-memory filter of the same page ${t3.elapsedMicroseconds / 1000}ms');
     });
   });
 }

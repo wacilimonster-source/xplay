@@ -42,12 +42,10 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
     final cached = await Repository.getUserCachedMedia(
         screenName, settings.loadBatchSize,
         filters: settings.filters);
-    final watched = settings.userDetailAvoidWatchedContent
-        ? await Repository.getWatchedIdentifiers()
-        : const <String>{};
-    final visibleCached = settings.userDetailAvoidWatchedContent
-        ? Repository.filterUnwatched(cached, watched)
-        : cached;
+    // SQL-side filtering: the watched table used to be loaded in full on every
+    // profile open.
+    final visibleCached = await Repository.filterWatched(cached,
+        enabled: settings.userDetailAvoidWatchedContent);
 
     // Trigger async fetch in the background
     unawaited(_fetchFreshData(screenName, client, settings));
@@ -89,12 +87,8 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
         filters: settings.filters,
         timeoutSeconds: settings.apiTimeoutSeconds,
       );
-      final watched = settings.userDetailAvoidWatchedContent
-          ? await Repository.getWatchedIdentifiers()
-          : const <String>{};
-      final visibleTweets = settings.userDetailAvoidWatchedContent
-          ? Repository.filterUnwatched(response.tweets, watched)
-          : response.tweets;
+      final visibleTweets = await Repository.filterWatched(response.tweets,
+          enabled: settings.userDetailAvoidWatchedContent);
 
       if (response.tweets.isEmpty) {
         _set((current) => current.copyWith(
@@ -165,12 +159,8 @@ class UserMediaNotifier extends AsyncNotifier<FeedState> {
         timeoutSeconds: settings.apiTimeoutSeconds,
       );
 
-      final watched = settings.userDetailAvoidWatchedContent
-          ? await Repository.getWatchedIdentifiers()
-          : const <String>{};
-      final newTweets = settings.userDetailAvoidWatchedContent
-          ? Repository.filterUnwatched(response.tweets, watched)
-          : response.tweets;
+      final newTweets = await Repository.filterWatched(response.tweets,
+          enabled: settings.userDetailAvoidWatchedContent);
       if (response.tweets.isNotEmpty) {
         await Repository.insertCachedMedia(response.tweets);
         // Fire-and-forget: enforcement walks the cache directory, and awaiting it

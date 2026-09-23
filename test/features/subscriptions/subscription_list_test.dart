@@ -71,8 +71,7 @@ void main() {
           overrides: [
             subscriptionListProvider.overrideWith(() =>
                 MockSubscriptionListNotifier([
-                  Subscription(
-                      id: '1', screenName: 'user1', name: 'User One'),
+                  Subscription(id: '1', screenName: 'user1', name: 'User One'),
                 ])),
           ],
           child: const MaterialApp(

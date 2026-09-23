@@ -10,6 +10,16 @@ enum AppLifecycle {
 }
 
 class LifecycleNotifier extends Notifier<AppLifecycle> with WidgetsBindingObserver {
+  /// Memory-pressure subscribers (the pool shrinks itself when these fire).
+  static final List<VoidCallback> _memoryPressureListeners = [];
+
+  /// Registers [callback] for OS memory-pressure signals; returns the
+  /// unregister function so callers can drop it with their own lifecycle.
+  static VoidCallback addMemoryPressureListener(VoidCallback callback) {
+    _memoryPressureListeners.add(callback);
+    return () => _memoryPressureListeners.remove(callback);
+  }
+
   @override
   AppLifecycle build() {
     WidgetsBinding.instance.addObserver(this);
@@ -17,6 +27,15 @@ class LifecycleNotifier extends Notifier<AppLifecycle> with WidgetsBindingObserv
       WidgetsBinding.instance.removeObserver(this);
     });
     return AppLifecycle.resumed;
+  }
+
+  @override
+  void didHaveMemoryPressure() {
+    for (final listener in List<VoidCallback>.of(_memoryPressureListeners)) {
+      try {
+        listener();
+      } catch (_) {}
+    }
   }
 
   @override

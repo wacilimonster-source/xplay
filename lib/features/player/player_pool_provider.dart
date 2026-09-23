@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../core/utils/lifecycle_provider.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
@@ -26,7 +29,14 @@ class PlayerInstance {
 }
 
 class PlayerPoolNotifier extends Notifier<Map<String, PlayerInstance>> {
-  static const int maxPoolSize = 12;
+  /// Preparing the next 5 videos plus room to scroll back without re-creating a
+  /// native player (the previous 12 was hit constantly on a 50-item run).
+  static const int maxPoolSize = 20;
+
+  /// Pool size to fall back to when the OS reports memory pressure.
+  static const int comfortablePoolSize = 8;
+
+  VoidCallback? _unregisterMemoryPressure;
 
   /// Mirror of the live instances. `ref.onDispose` must not read `state`
   /// (Riverpod 3 forbids touching providers from lifecycle callbacks), so the
@@ -36,13 +46,33 @@ class PlayerPoolNotifier extends Notifier<Map<String, PlayerInstance>> {
   @override
   Map<String, PlayerInstance> build() {
     _tracked = const {};
+    _unregisterMemoryPressure =
+        LifecycleNotifier.addMemoryPressureListener(shrinkForMemoryPressure);
     ref.onDispose(() {
+      _unregisterMemoryPressure?.call();
+      _unregisterMemoryPressure = null;
       for (final instance in _tracked.values) {
         instance.dispose();
       }
       _tracked = const {};
     });
     return {};
+  }
+
+  /// Drops the least recently used players until [comfortablePoolSize] remain.
+  ///
+  /// A disposed player is not a broken UI: [TiktokMediaContainer] re-warms an
+  /// id it finds missing, so even the visible item recovers on the next frame.
+  void shrinkForMemoryPressure({int keep = comfortablePoolSize}) {
+    if (state.length <= keep) return;
+    final ordered = state.entries.toList()
+      ..sort((a, b) => a.value.lastUsed.compareTo(b.value.lastUsed));
+    final drop = ordered.take(state.length - keep).toList();
+    final newState = Map<String, PlayerInstance>.of(state);
+    for (final entry in drop) {
+      newState.remove(entry.key)?.dispose();
+    }
+    _publish(newState);
   }
 
   void _publish(Map<String, PlayerInstance> next) {

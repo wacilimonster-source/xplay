@@ -52,6 +52,73 @@ class QueryIdResolver {
   static final Map<String, DateTime> _capturedAt = {};
   static const Duration _capturedValidity = Duration(days: 14);
 
+  /// Operations the app actually calls. The WebView capture sequence walks
+  /// x.com until all of these have a *live* id, then stops early.
+  static const List<String> requiredOperations = [
+    'SearchTimeline',
+    'UserTweets',
+    'Following',
+    'TweetDetail',
+    'UserByScreenName',
+    'HomeLatestTimeline',
+    'HomeTimeline',
+    'MediaTabVideoMixer',
+    'FavoriteTweet',
+    'UnfavoriteTweet',
+    'FollowMutation',
+  ];
+
+  /// Ops whose bundled id just 404'd on every candidate: capture must run again
+  /// even if it already completed this session.
+  static final Set<String> _stale = {};
+
+  static bool _hasFreshLiveId(String op) {
+    final at = _capturedAt[op];
+    if (at == null) return false;
+    return DateTime.now().difference(at) <= _capturedValidity;
+  }
+
+  /// Required operations still lacking a fresh, live-captured id.
+  static List<String> missingRequired() => requiredOperations
+      .where((op) => !_hasFreshLiveId(op) || _stale.contains(op))
+      .toList();
+
+  /// True when every required operation has a fresh live id: the capture walk
+  /// can be skipped entirely, which is what makes a repeat launch fast.
+  static bool get isCaptureComplete => missingRequired().isEmpty;
+
+  /// Whether the WebView capture walk is worth running at all.
+  static bool get needsCapture => !isCaptureComplete;
+
+  /// Records the id that actually served a 200, so the next call starts from a
+  /// known-good value instead of walking the expired candidates all over again.
+  static void promoteVerified(String op, String path) {
+    final id = idFromPath(path);
+    if (id.isEmpty) return;
+    if (_ids[op] == id && _capturedAt.containsKey(op)) return;
+    _ids[op] = id;
+    _capturedAt[op] = DateTime.now();
+    _stale.remove(op);
+    AppLogger.log('XFLOW: promoted verified query id for $op -> $id');
+  }
+
+  /// Extracts the operation id from a `/graphql/<id>/<Op>` path.
+  static String idFromPath(String path) {
+    const prefix = '/graphql/';
+    final start = path.startsWith(prefix) ? prefix.length : 0;
+    final end = path.indexOf('/', start);
+    return path.substring(start, end == -1 ? path.length : end);
+  }
+
+  /// Called when every candidate path for [op] failed, i.e. the bundled value is
+  /// expired. Clears the cached id so the next launch re-captures it.
+  static void markStale(String op) {
+    if (!_stale.add(op)) return;
+    _capturedAt.remove(op);
+    _ids.remove(op);
+    AppLogger.log('XFLOW: query id for $op reported stale; recapture needed');
+  }
+
   /// Optional remote JSON override URL (a map of operation -> queryId).
   /// Leave null to disable.
   static String? remoteUrl;
@@ -298,6 +365,20 @@ class QueryIdResolver {
     }
   }
 
+  /// Reads and merges whatever the hook recorded so far, without waiting.
+  /// Lets the capture loop poll instead of sleeping a fixed number of seconds.
+  static Future<int> captureNow(WebViewController controller) async {
+    try {
+      await controller.runJavaScript(captureScript).catchError((_) {});
+      final map = await readCaptured(controller);
+      if (map.isEmpty) return 0;
+      await _applyCaptured(map);
+      return map.length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   /// Installs the hook and immediately merges whatever x.com has already
   /// generated (e.g. the home timeline). Returns the number of ops captured.
   static Future<int> captureFromWebView(WebViewController controller) async {
@@ -307,6 +388,9 @@ class QueryIdResolver {
       final map = await readCaptured(controller);
       if (map.isNotEmpty) {
         await _applyCaptured(map);
+        for (final op in map.keys) {
+          _stale.remove(op);
+        }
         AppLogger.log('XFLOW: Captured ${map.length} live query IDs: '
             '${map.keys.join(', ')}');
       } else {

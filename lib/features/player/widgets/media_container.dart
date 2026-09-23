@@ -294,10 +294,11 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
 
   @override
   Widget build(BuildContext context) {
-    // Watching (not `ref.listen` outside build) keeps this unconditional, and
-    // lets a background/lock transition pause playback: nothing used to stop the
-    // audio when the app left the foreground.
-    final appActive = ref.watch(lifecycleProvider) == AppLifecycle.resumed;
+    // Watching a derived bool (not the enum) keeps this unconditional and still
+    // lets a background/lock transition pause playback, while `inactive` ->
+    // `hidden` transitions no longer rebuild every visible video.
+    final appActive = ref.watch(
+        lifecycleProvider.select((l) => l == AppLifecycle.resumed));
 
     if (widget.tweet.mediaUrls.isEmpty) {
       _scheduleSync(appActive);
@@ -333,7 +334,7 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
                       shape: BoxShape.circle,
                       color: _imageIndex == index
                           ? Colors.white
-                          : Colors.white.withOpacity(0.4),
+                          : Colors.white.withValues(alpha: 0.4),
                     ),
                   );
                 }),
@@ -346,8 +347,11 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
       );
     }
 
-    final pool = ref.watch(playerPoolProvider);
-    var instance = pool[widget.tweet.id];
+    // Select this tweet's player only: the whole pool map changes whenever any
+    // item is warmed or released, and rebuilding every video on that was both
+    // wasted work and the reason a paused video could flicker back to playing.
+    final instance =
+        ref.watch(playerPoolProvider.select((p) => p[widget.tweet.id]));
 
     if (instance == null) {
       _clearSubscriptions();
@@ -364,8 +368,6 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
       });
       return const Center(child: CircularProgressIndicator());
     }
-
-    final settings = ref.watch(settingsProvider);
 
     // Re-bind event subscriptions whenever the pool hands out a new instance
     // for this tweet id (the old one was disposed by the pool).
@@ -387,7 +389,7 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
 
     final error = _playbackError;
     if (error != null) {
-      return _buildErrorPanel(instance, error, settings);
+      return _buildErrorPanel(instance, error);
     }
 
     return Stack(
@@ -415,7 +417,7 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
                   bottomButtonBar: [
                     Expanded(
                       child: Container(
-                        color: Colors.black.withOpacity(0.5),
+                        color: Colors.black.withValues(alpha: 0.5),
                         padding:
                             const EdgeInsets.symmetric(horizontal: 16.0),
                         child: Column(
@@ -528,8 +530,7 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
     }
   }
 
-  Widget _buildErrorPanel(
-      PlayerInstance instance, String error, SettingsState settings) {
+  Widget _buildErrorPanel(PlayerInstance instance, String error) {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,

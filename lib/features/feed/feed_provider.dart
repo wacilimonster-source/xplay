@@ -258,10 +258,6 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
     try {
       final client = ref.read(twitterClientProvider);
       final settings = ref.read(settingsProvider);
-      final watched = settings.avoidWatchedContent
-          ? await Repository.getWatchedIdentifiers()
-          : const <String>{};
-
       debugPrint('XFLOW: Background refresh started');
 
       // 1. Fetch from API
@@ -298,9 +294,11 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
       }
 
       final freshPool = freshResponse.tweets;
-      final freshTagged = Repository.filterUnwatched(
+      // One indexed lookup over this page's ids instead of loading the whole
+      // watched table into memory.
+      final freshTagged = await Repository.filterWatched(
         freshPool.map((t) => t.copyWith(source: 'API')).toList(),
-        watched,
+        enabled: settings.avoidWatchedContent,
       );
 
       debugPrint(
@@ -396,10 +394,6 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
     state = AsyncData(currentState.copyWith(isLoadingMore: true));
 
     try {
-      final watched = settings.avoidWatchedContent
-          ? await Repository.getWatchedIdentifiers()
-          : const <String>{};
-
       // Live dedupe sets, updated as candidates are accepted. The previous
       // version computed these once outside the loop, so the same tweet could be
       // appended twice within one "load more".
@@ -416,15 +410,18 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
         }
       }
 
-      List<Tweet> accept(List<Tweet> candidates) {
-        final out = <Tweet>[];
+      Future<List<Tweet>> accept(List<Tweet> candidates) async {
+        final deduped = <Tweet>[];
         for (final t in candidates) {
           if (seenIds.contains(t.id)) continue;
-          if (t.mediaUrls.isNotEmpty && seenMedia.contains(t.mediaUrls.first)) {
+          if (t.mediaUrls.isNotEmpty &&
+              seenMedia.contains(t.mediaUrls.first)) {
             continue;
           }
-          out.add(t);
+          deduped.add(t);
         }
+        final out = await Repository.filterWatched(deduped,
+            enabled: settings.avoidWatchedContent);
         remember(out);
         return out;
       }
@@ -449,12 +446,11 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
           filters: settings.filters,
         );
 
-        final localNew = accept(Repository.filterUnwatched(
-            dbCandidates.where((t) =>
+        final localNew = await accept(dbCandidates
+            .where((t) =>
                 !seenIds.contains(t.id) &&
                 (t.mediaUrls.isEmpty || !seenMedia.contains(t.mediaUrls.first)))
-                .toList(),
-            watched));
+            .toList());
 
         if (localNew.isNotEmpty) {
           allNewTweets.addAll(localNew);
@@ -504,14 +500,12 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
 
           wasRateLimited = wasRateLimited || response.rateLimited;
 
-          final freshUnique = accept(Repository.filterUnwatched(
-              response.tweets
-                  .where((t) =>
-                      !seenIds.contains(t.id) &&
-                      (t.mediaUrls.isEmpty ||
-                          !seenMedia.contains(t.mediaUrls.first)))
-                  .toList(),
-              watched));
+          final freshUnique = await accept(response.tweets
+              .where((t) =>
+                  !seenIds.contains(t.id) &&
+                  (t.mediaUrls.isEmpty ||
+                      !seenMedia.contains(t.mediaUrls.first)))
+              .toList());
 
           if (response.tweets.isNotEmpty) {
             await Repository.insertCachedMedia(response.tweets);

@@ -1,4 +1,6 @@
 import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart';
@@ -64,21 +66,35 @@ class Repository {
     }
     return await openDatabase(
       path,
-      version: 13,
-      onCreate: (db, version) async {
-        await db.execute(
-          'CREATE TABLE $tableAccounts (id TEXT PRIMARY KEY, screen_name TEXT, rest_id TEXT, auth_header TEXT)',
-        );
-        await db.execute(
-          'CREATE TABLE $tableSubscriptions (id TEXT PRIMARY KEY, screen_name TEXT, name TEXT, profile_image_url TEXT, description TEXT, followers_count INTEGER, following_count INTEGER, profile_synced_at INTEGER)',
-        );
-        await db.execute(
-          'CREATE UNIQUE INDEX idx_subs_screen ON $tableSubscriptions (LOWER(screen_name))',
-        );
-        await db.execute(
-          'CREATE TABLE $tableHashtags (tag TEXT PRIMARY KEY, added_at INTEGER)',
-        );
-        await db.execute('''
+      version: schemaVersion,
+      onCreate: createSchema,
+      onUpgrade: upgradeSchema,
+    );
+  }
+
+  /// Current schema version. Migrations are listed in
+  /// `docs/database_migrations.md`; add one entry per version there and a
+  /// matching `if (oldVersion < N)` branch below.
+  @visibleForTesting
+  static const int schemaVersion = 14;
+
+  /// Creates every table and index for a fresh install. Exposed so migration
+  /// tests can build a specific starting schema.
+  @visibleForTesting
+  static Future<void> createSchema(Database db, int version) async {
+    await db.execute(
+      'CREATE TABLE $tableAccounts (id TEXT PRIMARY KEY, screen_name TEXT, rest_id TEXT, auth_header TEXT)',
+    );
+    await db.execute(
+      'CREATE TABLE $tableSubscriptions (id TEXT PRIMARY KEY, screen_name TEXT, name TEXT, profile_image_url TEXT, description TEXT, followers_count INTEGER, following_count INTEGER, profile_synced_at INTEGER)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX idx_subs_screen ON $tableSubscriptions (LOWER(screen_name))',
+    );
+    await db.execute(
+      'CREATE TABLE $tableHashtags (tag TEXT PRIMARY KEY, added_at INTEGER)',
+    );
+    await db.execute('''
           CREATE TABLE $tableCachedMedia (
             id TEXT PRIMARY KEY,
             text TEXT,
@@ -101,45 +117,55 @@ class Repository {
             reply_count INTEGER DEFAULT 0
           )
         ''');
-        await db.execute(
-          'CREATE INDEX idx_discovery_lookup ON $tableCachedMedia (played_count, created_at DESC)',
-        );
-        await db.execute(
-          'CREATE INDEX idx_media_key ON $tableCachedMedia (media_key)',
-        );
-        await db.execute(
-          'CREATE INDEX idx_suggested ON $tableCachedMedia (last_suggested_at)',
-        );
-        await db.execute(
-          'CREATE INDEX idx_created_at ON $tableCachedMedia (created_at DESC)',
-        );
-        await db.execute('''
+    await db.execute(
+      'CREATE INDEX idx_discovery_lookup ON $tableCachedMedia (played_count, created_at DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_media_key ON $tableCachedMedia (media_key)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_suggested ON $tableCachedMedia (last_suggested_at)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_created_at ON $tableCachedMedia (created_at DESC)',
+    );
+    await db.execute('''
           CREATE TABLE $tableWatchedMedia (
             id TEXT PRIMARY KEY,
             media_key TEXT,
             watched_at INTEGER
           )
         ''');
-      },
-      onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
-          await _addColumnIfMissing(db, tableAccounts, 'rest_id', 'TEXT');
-        }
-        if (oldVersion < 3) {
-          await db.execute(
-            'CREATE TABLE IF NOT EXISTS $tableSubscriptions (id TEXT PRIMARY KEY, screen_name TEXT, name TEXT, profile_image_url TEXT)',
-          );
-        }
-        if (oldVersion < 4) {
-          await _addColumnIfMissing(
-              db, tableSubscriptions, 'description', 'TEXT');
-          await _addColumnIfMissing(
-              db, tableSubscriptions, 'followers_count', 'INTEGER');
-          await _addColumnIfMissing(
-              db, tableSubscriptions, 'following_count', 'INTEGER');
-        }
-        if (oldVersion < 5) {
-          await db.execute('''
+    // Indexes on watched_media must come after the table exists.
+    await db.execute(
+      'CREATE INDEX idx_watched_media_key ON $tableWatchedMedia (media_key)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_watched_at ON $tableWatchedMedia (watched_at)',
+    );
+  }
+
+  /// Migrates an existing database from [oldVersion] to [newVersion].
+  @visibleForTesting
+  static Future<void> upgradeSchema(
+      Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await _addColumnIfMissing(db, tableAccounts, 'rest_id', 'TEXT');
+    }
+    if (oldVersion < 3) {
+      await db.execute(
+        'CREATE TABLE IF NOT EXISTS $tableSubscriptions (id TEXT PRIMARY KEY, screen_name TEXT, name TEXT, profile_image_url TEXT)',
+      );
+    }
+    if (oldVersion < 4) {
+      await _addColumnIfMissing(db, tableSubscriptions, 'description', 'TEXT');
+      await _addColumnIfMissing(
+          db, tableSubscriptions, 'followers_count', 'INTEGER');
+      await _addColumnIfMissing(
+          db, tableSubscriptions, 'following_count', 'INTEGER');
+    }
+    if (oldVersion < 5) {
+      await db.execute('''
             CREATE TABLE IF NOT EXISTS $tableCachedMedia (
               id TEXT PRIMARY KEY,
               text TEXT,
@@ -154,74 +180,87 @@ class Repository {
               duration_watched INTEGER DEFAULT 0
             )
           ''');
-        }
-        if (oldVersion < 6) {
-          await db.execute(
-            'CREATE INDEX IF NOT EXISTS idx_discovery_lookup ON $tableCachedMedia (played_count, created_at DESC)',
-          );
-        }
-        if (oldVersion < 7) {
-          await _addColumnIfMissing(db, tableCachedMedia, 'media_key', 'TEXT');
-          await db.execute(
-              'CREATE INDEX IF NOT EXISTS idx_media_key ON $tableCachedMedia (media_key)');
-        }
-        if (oldVersion < 8) {
-          await db.execute(
-            'CREATE TABLE IF NOT EXISTS $tableHashtags (tag TEXT PRIMARY KEY, added_at INTEGER)',
-          );
-        }
-        if (oldVersion < 9) {
-          await _addColumnIfMissing(
-              db, tableCachedMedia, 'last_suggested_at', 'INTEGER');
-          await db.execute(
-              'CREATE INDEX IF NOT EXISTS idx_suggested ON $tableCachedMedia (last_suggested_at)');
-        }
-        if (oldVersion < 10) {
-          await db.execute('''
+    }
+    if (oldVersion < 6) {
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_discovery_lookup ON $tableCachedMedia (played_count, created_at DESC)',
+      );
+    }
+    if (oldVersion < 7) {
+      await _addColumnIfMissing(db, tableCachedMedia, 'media_key', 'TEXT');
+      await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_media_key ON $tableCachedMedia (media_key)');
+    }
+    if (oldVersion < 8) {
+      await db.execute(
+        'CREATE TABLE IF NOT EXISTS $tableHashtags (tag TEXT PRIMARY KEY, added_at INTEGER)',
+      );
+    }
+    if (oldVersion < 9) {
+      await _addColumnIfMissing(
+          db, tableCachedMedia, 'last_suggested_at', 'INTEGER');
+      await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_suggested ON $tableCachedMedia (last_suggested_at)');
+    }
+    if (oldVersion < 10) {
+      await db.execute('''
             CREATE TABLE IF NOT EXISTS $tableWatchedMedia (
               id TEXT PRIMARY KEY,
               media_key TEXT,
               watched_at INTEGER
             )
           ''');
-        }
-        if (oldVersion < 11) {
-          await _addColumnIfMissing(
-              db, tableCachedMedia, 'media_width', 'INTEGER');
-          await _addColumnIfMissing(
-              db, tableCachedMedia, 'media_height', 'INTEGER');
-        }
-        if (oldVersion < 12) {
-          await _addColumnIfMissing(
-              db, tableSubscriptions, 'profile_synced_at', 'INTEGER');
-        }
-        if (oldVersion < 13) {
-          // Like state + a guaranteed-present timestamp, so pruning can stop
-          // treating "no date" as "garbage" (it used to delete every row).
-          await _addColumnIfMissing(
-              db, tableCachedMedia, 'inserted_at', 'INTEGER');
-          await _addColumnIfMissing(
-              db, tableCachedMedia, 'is_liked', 'INTEGER DEFAULT 0');
-          await _addColumnIfMissing(
-              db, tableCachedMedia, 'favorite_count', 'INTEGER DEFAULT 0');
-          await _addColumnIfMissing(
-              db, tableCachedMedia, 'reply_count', 'INTEGER DEFAULT 0');
-          await db.execute(
-            'CREATE INDEX IF NOT EXISTS idx_created_at ON $tableCachedMedia (created_at DESC)',
-          );
-          // The same handle could be stored twice: once keyed by screen_name
-          // (follow-list sync) and once keyed by rest_id (profile fetch /
-          // follow button). Collapse to one row per handle, then enforce it.
-          await db.execute(
-            'DELETE FROM $tableSubscriptions WHERE rowid NOT IN '
-            '(SELECT MAX(rowid) FROM $tableSubscriptions GROUP BY LOWER(screen_name))',
-          );
-          await db.execute(
-            'CREATE UNIQUE INDEX IF NOT EXISTS idx_subs_screen '
-            'ON $tableSubscriptions (LOWER(screen_name))',
-          );
-        }
-      },
+    }
+    if (oldVersion < 11) {
+      await _addColumnIfMissing(db, tableCachedMedia, 'media_width', 'INTEGER');
+      await _addColumnIfMissing(
+          db, tableCachedMedia, 'media_height', 'INTEGER');
+    }
+    if (oldVersion < 12) {
+      await _addColumnIfMissing(
+          db, tableSubscriptions, 'profile_synced_at', 'INTEGER');
+    }
+    if (oldVersion < 13) {
+      // Like state + a guaranteed-present timestamp, so pruning can stop
+      // treating "no date" as "garbage" (it used to delete every row).
+      await _addColumnIfMissing(db, tableCachedMedia, 'inserted_at', 'INTEGER');
+      await _addColumnIfMissing(
+          db, tableCachedMedia, 'is_liked', 'INTEGER DEFAULT 0');
+      await _addColumnIfMissing(
+          db, tableCachedMedia, 'favorite_count', 'INTEGER DEFAULT 0');
+      await _addColumnIfMissing(
+          db, tableCachedMedia, 'reply_count', 'INTEGER DEFAULT 0');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_created_at ON $tableCachedMedia (created_at DESC)',
+      );
+      // The same handle could be stored twice: once keyed by screen_name
+      // (follow-list sync) and once keyed by rest_id (profile fetch /
+      // follow button). Collapse to one row per handle, then enforce it.
+      await db.execute(
+        'DELETE FROM $tableSubscriptions WHERE rowid NOT IN '
+        '(SELECT MAX(rowid) FROM $tableSubscriptions GROUP BY LOWER(screen_name))',
+      );
+      await db.execute(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_subs_screen '
+        'ON $tableSubscriptions (LOWER(screen_name))',
+      );
+    }
+    if (oldVersion < 14) {
+      await _migrateV14(db);
+    }
+  }
+
+  /// v13 -> v14: index the `watched_media` lookups and bound its growth.
+  ///
+  /// Every watched item is appended and never removed, so the table grew for the
+  /// lifetime of the install and `getWatchedIdentifiers()` loaded all of it into
+  /// memory on each feed request.
+  static Future<void> _migrateV14(Database db) async {
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_watched_media_key ON $tableWatchedMedia (media_key)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_watched_at ON $tableWatchedMedia (watched_at)',
     );
   }
 
@@ -715,11 +754,18 @@ class Repository {
   }
 
   /// 返回所有已看的标识符集合(id + 非空 media_key),用于过滤。
-  static Future<Set<String>> getWatchedIdentifiers() async {
+  ///
+  /// [limit] keeps the in-memory set bounded: the table only ever grows, and
+  /// this used to be loaded in full on every feed request. Rows are ordered
+  /// newest-first, so a cap only drops the oldest watched items — which
+  /// [pruneWatchedMedia] deletes anyway.
+  static Future<Set<String>> getWatchedIdentifiers({int? limit}) async {
     final db = await database;
     final maps = await db.query(
       tableWatchedMedia,
       columns: ['id', 'media_key'],
+      orderBy: 'watched_at DESC',
+      limit: limit,
     );
     final set = <String>{};
     for (final m in maps) {
@@ -728,6 +774,78 @@ class Repository {
       if (mk != null) set.add(mk as String);
     }
     return set;
+  }
+
+  /// SQL-side variant of [filterUnwatched] for a known page of tweets.
+  ///
+  /// Costs one indexed `IN` lookup over the ids we actually have instead of
+  /// materialising the whole watched list in Dart. The lookup is chunked:
+  /// Android ships SQLite 3.22 on API 29, which caps a statement at 999 bind
+  /// variables, and each tweet contributes up to two.
+  static Future<List<Tweet>> filterUnwatchedInDb(List<Tweet> tweets) async {
+    if (tweets.isEmpty) return tweets;
+    final db = await database;
+    const chunkSize = 400;
+    final watched = <String>{};
+
+    for (var from = 0; from < tweets.length; from += chunkSize) {
+      final chunk =
+          tweets.sublist(from, (from + chunkSize).clamp(0, tweets.length));
+      final ids = chunk.map((t) => t.id).toList();
+      final mediaKeys =
+          chunk.map((t) => t.mediaKey).whereType<String>().toList();
+      final clauses = <String>[];
+      final args = <Object?>[];
+
+      if (ids.isNotEmpty) {
+        clauses.add('id IN (${List.filled(ids.length, '?').join(',')})');
+        args.addAll(ids);
+      }
+      if (mediaKeys.isNotEmpty) {
+        clauses.add(
+            'media_key IN (${List.filled(mediaKeys.length, '?').join(',')})');
+        args.addAll(mediaKeys);
+      }
+      if (clauses.isEmpty) continue;
+
+      final rows = await db.rawQuery(
+        'SELECT id, media_key FROM $tableWatchedMedia WHERE ${clauses.join(' OR ')}',
+        args,
+      );
+      for (final r in rows) {
+        watched.add(r['id'] as String);
+        final mk = r['media_key'];
+        if (mk != null) watched.add(mk as String);
+      }
+    }
+    return filterUnwatched(tweets, watched);
+  }
+
+  /// Caps `watched_media` at the most recent [keepLimit] rows.
+  ///
+  /// Without this the table grows for the lifetime of the install while being
+  /// read on every feed request.
+  static Future<int> pruneWatchedMedia(
+      {int keepLimit = _watchedKeepRows}) async {
+    final db = await database;
+    return db.rawDelete(
+      'DELETE FROM $tableWatchedMedia WHERE watched_at < '
+      '(SELECT watched_at FROM $tableWatchedMedia ORDER BY watched_at DESC '
+      'LIMIT 1 OFFSET ?)',
+      [keepLimit],
+    );
+  }
+
+  /// How many watched entries are kept (and read back) by default.
+  static const int _watchedKeepRows = 20000;
+
+  /// Filter-aware convenience for callers: [enabled] carries the user's
+  /// "避开已看内容" switch, so a page of tweets can be cleaned without the caller
+  /// first materialising the watched set.
+  static Future<List<Tweet>> filterWatched(List<Tweet> tweets,
+      {required bool enabled}) async {
+    if (!enabled || tweets.isEmpty) return tweets;
+    return filterUnwatchedInDb(tweets);
   }
 
   /// 从列表中剔除已看项。media_key 为 null 时只按 id 判定。
@@ -810,6 +928,9 @@ class Repository {
         )
       ''', [deleteCount]);
     }
+
+    // watched_media only ever grew, and it is consulted on every feed request.
+    await pruneWatchedMedia();
   }
 
   static Future<void> purgeSeenMetadata({bool clearWatchedList = true}) async {
