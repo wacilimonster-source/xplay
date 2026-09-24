@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -259,6 +261,18 @@ void main() {
       expect(bySql.map((t) => t.id).toSet(), byMemory.map((t) => t.id).toSet(),
           reason: 'SQL filtering must agree with the in-memory Set');
 
+      // The doc also asks for the memory peak. RSS under the test VM is too
+      // noisy to be a number worth quoting, so what is reported is what the two
+      // paths actually retain: identifier strings held alive in the Dart heap.
+      final retainedByFull =
+          fullSet.fold<int>(0, (sum, id) => sum + id.length) * 2;
+      final retainedByBounded =
+          boundedSet.fold<int>(0, (sum, id) => sum + id.length) * 2;
+      debugPrint('watched_media @10k rows: retained '
+          '${fullSet.length} ids / ${(retainedByFull / 1024).toStringAsFixed(0)}KB '
+          'vs bounded(2000) ${boundedSet.length} ids / '
+          '${(retainedByBounded / 1024).toStringAsFixed(0)}KB '
+          '(rss ${(ProcessInfo.currentRss / 1048576).toStringAsFixed(0)}MB now)');
       debugPrint('watched_media @10k rows: full '
           '${t0.elapsedMicroseconds / 1000}ms, bounded(2000) ${t1.elapsedMicroseconds / 1000}ms, '
           'SQL filter of a 500-item page ${t2.elapsedMicroseconds / 1000}ms, '

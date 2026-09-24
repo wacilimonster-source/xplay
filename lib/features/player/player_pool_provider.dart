@@ -108,36 +108,49 @@ class PlayerPoolNotifier extends Notifier<Map<String, PlayerInstance>> {
     var newState = Map<String, PlayerInstance>.of(state)..[id] = instance;
 
     if (newState.length > maxPoolSize) {
-      // Evict the least recently used entry, preferring ones this scope owns:
-      // another screen's currently visible player must not be dropped.
-      String? victim;
-      DateTime? oldest;
-      for (final e in newState.entries) {
-        if (e.key == id) continue;
-        final heldByOtherScope = !e.value.owners.contains(scope);
-        if (heldByOtherScope) continue;
-        final current = oldest;
-        if (current == null || e.value.lastUsed.isBefore(current)) {
-          oldest = e.value.lastUsed;
-          victim = e.key;
-        }
-      }
-      if (victim == null) {
-        // Everything in this scope is in use: fall back to the global LRU.
-        for (final e in newState.entries) {
-          if (e.key == id) continue;
-          final current = oldest;
-          if (current == null || e.value.lastUsed.isBefore(current)) {
-            oldest = e.value.lastUsed;
-            victim = e.key;
-          }
-        }
-      }
-      if (victim != null) {
-        newState.remove(victim)?.dispose();
-      }
+      final victim = evictionVictim(
+        lastUsed: {
+          for (final e in newState.entries) e.key: e.value.lastUsed
+        },
+        owners: {
+          for (final e in newState.entries) e.key: e.value.owners
+        },
+        scope: scope,
+        skip: id,
+      );
+      if (victim != null) newState.remove(victim)?.dispose();
     }
     _publish(newState);
+  }
+
+  /// Which player to drop when the pool is over capacity.
+  ///
+  /// Prefers the least recently used player *this* scope owns: another screen's
+  /// currently visible player must not be dropped just because it is older. Only
+  /// when everything this scope owns is still in use does it fall back to the
+  /// global LRU.
+  @visibleForTesting
+  static String? evictionVictim({
+    required Map<String, DateTime> lastUsed,
+    required Map<String, Set<String>> owners,
+    required String scope,
+    required String skip,
+  }) {
+    String? pick(bool Function(String key) eligible) {
+      String? victim;
+      DateTime? oldest;
+      for (final entry in lastUsed.entries) {
+        if (entry.key == skip || !eligible(entry.key)) continue;
+        final current = oldest;
+        if (current == null || entry.value.isBefore(current)) {
+          oldest = entry.value;
+          victim = entry.key;
+        }
+      }
+      return victim;
+    }
+
+    return pick((key) => owners[key]!.contains(scope)) ?? pick((_) => true);
   }
 
   /// Drops everything [scope] claims except [activeIds]. Other scopes are left
