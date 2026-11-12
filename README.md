@@ -94,7 +94,45 @@ done
 
 ### 签名
 
-默认使用 debug keystore 签名。如需 release 签名，在 `android/app/build.gradle.kts` 中配置 `signingConfigs`。
+仓库内 `android/app/xplay-release.jks` 为固定 release 签名（`android/key.properties` 已 gitignore，本地构建时自行创建）。
+CI 从 Secrets 读取密码并生成 `key.properties`；若配置了 `ANDROID_KEYSTORE_BASE64`，会用其覆盖仓库内的 `.jks`。
+缺签名时 `android/app/build.gradle.kts` 回退到 debug 签名，**这类 APK 无法覆盖安装正式版**，发版请以 CI 产物为准。
+
+---
+
+## 发版（全程 GitHub Actions，本地无需 Flutter）
+
+发版不再手工改版本、打 tag、改 `update.json`，只需在 GitHub 上点一次：
+
+1. 仓库 → **Actions** → **Release** → **Run workflow**（分支选 `main`）
+2. 两个输入都可留空：
+   - `version` 留空 → 自动在 `pubspec.yaml` 当前版本上 patch +1（`0.1.33+33` → `0.1.34+34`）；也可填 `0.2.0` 或 `0.2.0+40`
+   - `notes` 留空 → 自动用上个 tag 以来的 commit 标题生成更新说明；也可手填（支持多行）
+   - `prerelease` 勾选 → 只发 Release，不写 `update.json`
+3. 点 Run 后 CI 自动完成：
+
+```
+改 pubspec 版本 → 提交 main → 构建签名 arm64 APK → 打 tag v{版本}
+→ 发 GitHub Release（资产 xplay-v{版本}.apk）→ 校验资产可访问
+→ 回写 update.json 并提交 main
+```
+
+**需要的 Secrets**（Repository settings → Secrets and variables → Actions）：
+
+| Secret | 必填 | 说明 |
+|---|---|---|
+| `KEYSTORE_PASSWORD` | 是 | keystore 密码 |
+| `KEYSTORE_KEY_PASSWORD` | 是 | key 密码 |
+| `KEYSTORE_KEY_ALIAS` | 是 | key 别名 |
+| `ANDROID_KEYSTORE_BASE64` | 否 | 用 `base64 -w0 android/app/xplay-release.jks` 生成；不配则用仓库内的 .jks |
+
+**兼容旧方式**：`git tag v0.1.34 && git push origin v0.1.34` 仍会触发同样的流程，只是要求 tag 与 `pubspec.yaml` 里的版本已经一致（不一致会直接失败并提示），版本号不会自动 +1。
+
+**注意事项**
+
+- 💡 `update.json` 走 `raw.githubusercontent.com`，提交后 CDN 有几分钟缓存；应用侧已带时间戳参数绕过，但刚发版后立刻检查更新仍可能拿到旧清单。
+- ⚠️ 分析（`flutter analyze`）与测试（`flutter test`）目前是「提示不阻塞」：失败会在日志里标红但不拦发版。等测试稳定后可去掉 `continue-on-error` 改成硬门禁。
+- ⚠️ 构建失败时版本号提交已经推上 main（可追溯），下次发版会继续 +1，不会重复占用 tag。
 
 ---
 
