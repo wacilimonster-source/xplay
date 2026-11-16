@@ -38,7 +38,8 @@ env:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    # Ubuntu 26 ships Java 25 by default, which Gradle 8.14 cannot run.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -157,6 +158,12 @@ jobs:
           git commit -m "chore(release): v$VERSION+$BUILD [skip ci]"
           git push origin HEAD:main
 
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -201,30 +208,10 @@ jobs:
 
       - name: Build arm64 APK
         run: |
-          set +e
           flutter build apk --release \
             --target-platform android-arm64 \
             --build-name="$VERSION" \
-            --build-number="$BUILD" 2>&1 | tee "$RUNNER_TEMP/build.log"
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ]; then
-            # Surface the actual failure in the job annotations (visible without
-            # needing to download the full job log).
-            block=$(tail -n 250 "$RUNNER_TEMP/build.log" | tr '\r' '\n' |
-              grep -v '^[[:space:]]*$' |
-              grep -A 8 -F '* What went wrong:' | tr '\n' ' ' | cut -c1-380)
-            echo "::error::GRADLE_BLOCK $block"
-            before=$(tail -n 250 "$RUNNER_TEMP/build.log" | tr '\r' '\n' |
-              grep -v '^[[:space:]]*$' |
-              grep -B 20 -F '* What went wrong:' | tr '\n' ' ' | cut -c1-380)
-            echo "::error::GRADLE_BEFORE $before"
-            tail -n 200 "$RUNNER_TEMP/build.log" |
-              grep -v '^[[:space:]]*$' |
-              grep -Ev '\([0-9][^)]* available\)$' | tail -n 10 | cut -c1-400 |
-              while IFS= read -r line; do echo "::error::$line"; done
-            exit "$status"
-          fi
+            --build-number="$BUILD"
           APK=build/app/outputs/flutter-apk/app-release.apk
           test -f "$APK" || { echo "::error::未找到构建产物 $APK"; exit 1; }
           cp "$APK" "$RUNNER_TEMP/xplay-v$VERSION.apk"
@@ -321,16 +308,6 @@ jobs:
           git add update.json
           git commit -m "chore(release): update.json -> v$VERSION [skip ci]"
           git push origin HEAD:main
-
-      - name: Dump failure log into summary
-        if: failure()
-        run: |
-          {
-            echo "## Build failure log"
-            echo '```'
-            tail -n 150 "$RUNNER_TEMP/build.log" || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Summary
         if: always()
