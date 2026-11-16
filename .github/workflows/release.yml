@@ -221,7 +221,11 @@ jobs:
 
       - name: Verify signature
         run: |
-          keytool -printcert -jarfile "$RUNNER_TEMP/xplay-v$VERSION.apk" | grep -Ei "owner|sha1|sha-1|valid"
+          SDK_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          APKSIGNER=$(find "$SDK_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -n "$APKSIGNER" || { echo "::error::apksigner not found in $SDK_HOME/build-tools"; exit 1; }
+          "$APKSIGNER" verify --print-certs "$RUNNER_TEMP/xplay-v$VERSION.apk" |
+            grep -Ei 'Signer #[0-9]+ certificate (DN|SHA-256)'
 
       - name: Compose release body
         run: |
