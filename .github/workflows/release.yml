@@ -233,11 +233,17 @@ jobs:
 
       - name: Verify signature
         run: |
+          APK="$RUNNER_TEMP/xplay-v$VERSION.apk"
           SDK_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          APKSIGNER=$(find "$SDK_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
-          test -n "$APKSIGNER" || { echo "::error::apksigner not found in $SDK_HOME/build-tools"; exit 1; }
-          "$APKSIGNER" verify --print-certs "$RUNNER_TEMP/xplay-v$VERSION.apk" |
-            grep -Ei 'Signer #[0-9]+ certificate (DN|SHA-256)'
+          APKSIGNER=$(find "$SDK_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)
+          echo "::notice::SDK_HOME=$SDK_HOME APKSIGNER=$APKSIGNER APK=$APK"
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner not found"
+            exit 1
+          fi
+          "$APKSIGNER" verify --print-certs "$APK" | head -n 3 |
+            while IFS= read -r line; do echo "::notice::$line"; done
+          "$APKSIGNER" verify "$APK"
 
       - name: Compose release body
         run: |
