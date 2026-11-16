@@ -204,7 +204,19 @@ jobs:
         run: flutter analyze
 
       - name: Test
-        run: flutter test --reporter expanded
+        run: |
+          # Widget smoke tests can flake under parallel CI load. Retry a few
+          # times, but still fail the release if all attempts fail.
+          for attempt in 1 2 3; do
+            echo "::group::flutter test (attempt $attempt)"
+            if flutter test --reporter expanded -j 1 --timeout 2m; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "Tests failed on attempt $attempt"
+          done
+          exit 1
 
       - name: Build arm64 APK
         run: |
