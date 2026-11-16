@@ -215,6 +215,10 @@ jobs:
               grep -v '^[[:space:]]*$' |
               grep -A 8 -F '* What went wrong:' | tr '\n' ' ' | cut -c1-380)
             echo "::error::GRADLE_BLOCK $block"
+            before=$(tail -n 250 "$RUNNER_TEMP/build.log" | tr '\r' '\n' |
+              grep -v '^[[:space:]]*$' |
+              grep -B 20 -F '* What went wrong:' | tr '\n' ' ' | cut -c1-380)
+            echo "::error::GRADLE_BEFORE $before"
             tail -n 200 "$RUNNER_TEMP/build.log" |
               grep -v '^[[:space:]]*$' |
               grep -Ev '\([0-9][^)]* available\)$' | tail -n 10 | cut -c1-400 |
