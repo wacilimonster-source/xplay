@@ -201,10 +201,21 @@ jobs:
 
       - name: Build arm64 APK
         run: |
+          set +e
           flutter build apk --release \
             --target-platform android-arm64 \
             --build-name="$VERSION" \
-            --build-number="$BUILD"
+            --build-number="$BUILD" 2>&1 | tee "$RUNNER_TEMP/build.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            # Surface the actual failure in the job annotations (visible without
+            # needing to download the full job log).
+            grep -Ei 'FAILURE:|What went wrong|error:|e: |Could not|Exception|Error:' \
+              "$RUNNER_TEMP/build.log" | tail -n 20 | cut -c1-400 |
+              while IFS= read -r line; do echo "::error::$line"; done
+            exit "$status"
+          fi
           APK=build/app/outputs/flutter-apk/app-release.apk
           test -f "$APK" || { echo "::error::未找到构建产物 $APK"; exit 1; }
           cp "$APK" "$RUNNER_TEMP/xplay-v$VERSION.apk"
