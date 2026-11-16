@@ -211,6 +211,10 @@ jobs:
           if [ "$status" -ne 0 ]; then
             # Surface the actual failure in the job annotations (visible without
             # needing to download the full job log).
+            block=$(tail -n 250 "$RUNNER_TEMP/build.log" | tr '\r' '\n' |
+              grep -v '^[[:space:]]*$' |
+              grep -A 8 -F '* What went wrong:' | tr '\n' ' ' | cut -c1-380)
+            echo "::error::GRADLE_BLOCK $block"
             tail -n 200 "$RUNNER_TEMP/build.log" |
               grep -v '^[[:space:]]*$' |
               grep -Ev '\([0-9][^)]* available\)$' | tail -n 10 | cut -c1-400 |
