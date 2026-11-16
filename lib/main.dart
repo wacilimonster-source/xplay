@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 import 'core/utils/app_logger.dart';
 import 'features/feed/tiktok_feed_screen.dart';
 import 'features/feed/hashtag_feed_screen.dart';
+import 'features/search/search_screen.dart';
 import 'features/subscriptions/subscription_list_screen.dart';
 import 'features/profile/user_details_screen.dart';
 import 'features/profile/user_media_feed_screen.dart';
@@ -20,6 +21,7 @@ import 'core/client/query_id_resolver.dart';
 import 'core/database/repository.dart';
 import 'core/utils/lifecycle_provider.dart';
 import 'core/services/update_service.dart';
+import 'core/services/video_cache_service.dart';
 import 'features/settings/update_dialog.dart';
 
 Object? _startupError;
@@ -43,6 +45,7 @@ void main() async {
     await Future.wait([
       TwitterAccount.init(),
       QueryIdResolver.init(),
+      VideoCacheService.instance.init(),
     ]);
     await databaseOpening.timeout(const Duration(seconds: 3));
   } on TimeoutException {
@@ -267,6 +270,7 @@ class MainScaffold extends ConsumerWidget {
         TiktokFeedScreen(),
         SubscriptionListScreen(isStandalone: false),
         HashtagListScreen(),
+        SearchScreen(),
       ],
     );
 
@@ -337,6 +341,11 @@ class MainScaffold extends ConsumerWidget {
               icon: Icon(Icons.trending_up_outlined),
               selectedIcon: Icon(Icons.trending_up, color: Colors.blue),
               label: '话题',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.search_outlined),
+              selectedIcon: Icon(Icons.search, color: Colors.blue),
+              label: '搜索',
             ),
           ],
         ),

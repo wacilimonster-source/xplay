@@ -16,6 +16,11 @@ enum MediaFilter { video, image, text }
 
 enum VideoEndAction { pause, replay, playNext }
 
+/// Decode quality for full-screen images. Highest is the default: X already
+/// hands us original-size URLs, so downscaling them to 1600px was throwing
+/// away detail for no benefit on modern phones.
+enum MediaQuality { highest, balanced, dataSaver }
+
 /// The single source of truth for defaults.
 ///
 /// The hard-coded constructor defaults and the `_init()` fallbacks used to
@@ -30,6 +35,11 @@ class SettingsDefaults {
   static const bool autoplay = true;
   static const bool isListView = false;
   static const int mediaCacheSizeMB = 500;
+  static const bool videoOfflineCacheEnabled = true;
+  static const bool videoCacheWifiOnly = true;
+  static const int videoCacheSizeMB = 1000;
+  static const MediaQuality imageQuality = MediaQuality.highest;
+  static const int imagePreloadAhead = 3;
   static const int syncInterval = 15;
   static const int syncBatchSize = 10;
   static const int loadBatchSize = 20;
@@ -124,6 +134,17 @@ class SettingsState {
   final bool isListView;
   final int mediaCacheSizeMB;
 
+  // Video offline cache (files are stored separately from the image cache).
+  final bool videoOfflineCacheEnabled;
+  final bool videoCacheWifiOnly;
+  final int videoCacheSizeMB;
+
+  /// Full-screen image decode quality. `highest` keeps the original pixels.
+  final MediaQuality imageQuality;
+
+  /// How many upcoming feed items get their images preloaded.
+  final int imagePreloadAhead;
+
   // New architectural parameters
   final int syncInterval;
   final int syncBatchSize;
@@ -176,6 +197,11 @@ class SettingsState {
     this.autoplay = SettingsDefaults.autoplay,
     this.isListView = SettingsDefaults.isListView,
     this.mediaCacheSizeMB = SettingsDefaults.mediaCacheSizeMB,
+    this.videoOfflineCacheEnabled = SettingsDefaults.videoOfflineCacheEnabled,
+    this.videoCacheWifiOnly = SettingsDefaults.videoCacheWifiOnly,
+    this.videoCacheSizeMB = SettingsDefaults.videoCacheSizeMB,
+    this.imageQuality = SettingsDefaults.imageQuality,
+    this.imagePreloadAhead = SettingsDefaults.imagePreloadAhead,
     this.syncInterval = SettingsDefaults.syncInterval,
     this.syncBatchSize = SettingsDefaults.syncBatchSize,
     this.loadBatchSize = SettingsDefaults.loadBatchSize,
@@ -228,6 +254,11 @@ class SettingsState {
     bool? autoplay,
     bool? isListView,
     int? mediaCacheSizeMB,
+    bool? videoOfflineCacheEnabled,
+    bool? videoCacheWifiOnly,
+    int? videoCacheSizeMB,
+    MediaQuality? imageQuality,
+    int? imagePreloadAhead,
     int? syncInterval,
     int? syncBatchSize,
     int? loadBatchSize,
@@ -269,6 +300,12 @@ class SettingsState {
       autoplay: autoplay ?? this.autoplay,
       isListView: isListView ?? this.isListView,
       mediaCacheSizeMB: mediaCacheSizeMB ?? this.mediaCacheSizeMB,
+      videoOfflineCacheEnabled:
+          videoOfflineCacheEnabled ?? this.videoOfflineCacheEnabled,
+      videoCacheWifiOnly: videoCacheWifiOnly ?? this.videoCacheWifiOnly,
+      videoCacheSizeMB: videoCacheSizeMB ?? this.videoCacheSizeMB,
+      imageQuality: imageQuality ?? this.imageQuality,
+      imagePreloadAhead: imagePreloadAhead ?? this.imagePreloadAhead,
       syncInterval: syncInterval ?? this.syncInterval,
       syncBatchSize: syncBatchSize ?? this.syncBatchSize,
       loadBatchSize: loadBatchSize ?? this.loadBatchSize,
@@ -314,6 +351,66 @@ class SettingsState {
       videoEndAction: videoEndAction ?? this.videoEndAction,
     );
   }
+
+  // Value-equal slices for the settings sub-pages. Selecting one of these
+  // instead of the whole state means dragging a slider only rebuilds its own
+  // section, not every page in the settings screen.
+
+  ({FeedSort fetchStrategy, bool autoplay, MediaQuality imageQuality, int imagePreloadAhead, VideoEndAction videoEndAction, int playbackRetryLimit, Set<MediaFilter> filters, int initialSyncCount, int loadBatchSize, double freshMixRatio})
+      get playbackSlice => (
+        fetchStrategy: fetchStrategy,
+        autoplay: autoplay,
+        imageQuality: imageQuality,
+        imagePreloadAhead: imagePreloadAhead,
+        videoEndAction: videoEndAction,
+        playbackRetryLimit: playbackRetryLimit,
+        filters: filters,
+        initialSyncCount: initialSyncCount,
+        loadBatchSize: loadBatchSize,
+        freshMixRatio: freshMixRatio,
+      );
+
+  ({bool avoidWatchedContent, bool unseenSubscriptionBoost, int saturationThreshold, int mediaSaturationThreshold, int saturationWindow, int mediaDeduplicationWindow, int unseenBoostLookahead, int dbCandidateMultiplier})
+      get discoverySlice => (
+        avoidWatchedContent: avoidWatchedContent,
+        unseenSubscriptionBoost: unseenSubscriptionBoost,
+        saturationThreshold: saturationThreshold,
+        mediaSaturationThreshold: mediaSaturationThreshold,
+        saturationWindow: saturationWindow,
+        mediaDeduplicationWindow: mediaDeduplicationWindow,
+        unseenBoostLookahead: unseenBoostLookahead,
+        dbCandidateMultiplier: dbCandidateMultiplier,
+      );
+
+  ({int mediaCacheSizeMB, bool videoOfflineCacheEnabled, bool videoCacheWifiOnly, int videoCacheSizeMB, int pruneThreshold})
+      get storageSlice => (
+        mediaCacheSizeMB: mediaCacheSizeMB,
+        videoOfflineCacheEnabled: videoOfflineCacheEnabled,
+        videoCacheWifiOnly: videoCacheWifiOnly,
+        videoCacheSizeMB: videoCacheSizeMB,
+        pruneThreshold: pruneThreshold,
+      );
+
+  ({int apiTimeoutSeconds, int timelineBatchSize, int apiRetryLimit, int lazyLoadThreshold, int autoSkipDelaySeconds})
+      get networkSlice => (
+        apiTimeoutSeconds: apiTimeoutSeconds,
+        timelineBatchSize: timelineBatchSize,
+        apiRetryLimit: apiRetryLimit,
+        lazyLoadThreshold: lazyLoadThreshold,
+        autoSkipDelaySeconds: autoSkipDelaySeconds,
+      );
+
+  ({Set<MediaFilter> filters, bool strictSubscriptionsOnly, bool includeNativeRetweets, bool useChunkedSubscriptions, int minFavesFilter, int maxQueryLength, int chunkRotationLimit, int minNewTweetsThreshold})
+      get searchSlice => (
+        filters: filters,
+        strictSubscriptionsOnly: strictSubscriptionsOnly,
+        includeNativeRetweets: includeNativeRetweets,
+        useChunkedSubscriptions: useChunkedSubscriptions,
+        minFavesFilter: minFavesFilter,
+        maxQueryLength: maxQueryLength,
+        chunkRotationLimit: chunkRotationLimit,
+        minNewTweetsThreshold: minNewTweetsThreshold,
+      );
 }
 
 class SettingsNotifier extends Notifier<SettingsState> {
@@ -322,11 +419,20 @@ class SettingsNotifier extends Notifier<SettingsState> {
   /// `LateInitializationError` because `_init()` had not finished yet.
   Future<SharedPreferences>? _prefsFuture;
 
+  /// Rebuilding used to null `_prefsFuture` and re-run 60+ SharedPreferences
+  /// reads on *every* invalidation. The preferences are loaded once; a rebuild
+  /// now simply returns the state that is already in memory.
+  bool _initialized = false;
+
   @override
   SettingsState build() {
-    _prefsFuture = null;
-    _init();
-    return SettingsState(isInitialized: false);
+    if (!_initialized) {
+      _initialized = true;
+      _prefsFuture = null;
+      _init();
+      return SettingsState(isInitialized: false);
+    }
+    return state;
   }
 
   Future<SharedPreferences> get _prefs =>
@@ -364,6 +470,20 @@ class SettingsNotifier extends Notifier<SettingsState> {
     final isListView = prefs.getBool('isListView') ?? SettingsDefaults.isListView;
     final mediaCacheSizeMB =
         prefs.getInt('mediaCacheSizeMB') ?? SettingsDefaults.mediaCacheSizeMB;
+    final videoOfflineCacheEnabled =
+        prefs.getBool('videoOfflineCacheEnabled') ??
+            SettingsDefaults.videoOfflineCacheEnabled;
+    final videoCacheWifiOnly = prefs.getBool('videoCacheWifiOnly') ??
+        SettingsDefaults.videoCacheWifiOnly;
+    final videoCacheSizeMB = prefs.getInt('videoCacheSizeMB') ??
+        SettingsDefaults.videoCacheSizeMB;
+    final imageQualityIdx =
+        prefs.getInt('imageQuality') ?? SettingsDefaults.imageQuality.index;
+    final imageQuality = imageQualityIdx < MediaQuality.values.length
+        ? MediaQuality.values[imageQualityIdx]
+        : SettingsDefaults.imageQuality;
+    final imagePreloadAhead = prefs.getInt('imagePreloadAhead') ??
+        SettingsDefaults.imagePreloadAhead;
 
     final syncInterval = prefs.getInt('syncInterval') ?? SettingsDefaults.syncInterval;
     final syncBatchSize = prefs.getInt('syncBatchSize') ?? SettingsDefaults.syncBatchSize;
@@ -447,6 +567,11 @@ class SettingsNotifier extends Notifier<SettingsState> {
       autoplay: prefs.getBool('autoplay') ?? SettingsDefaults.autoplay,
       isListView: isListView,
       mediaCacheSizeMB: mediaCacheSizeMB,
+      videoOfflineCacheEnabled: videoOfflineCacheEnabled,
+      videoCacheWifiOnly: videoCacheWifiOnly,
+      videoCacheSizeMB: videoCacheSizeMB,
+      imageQuality: imageQuality,
+      imagePreloadAhead: imagePreloadAhead,
       syncInterval: syncInterval,
       syncBatchSize: syncBatchSize,
       loadBatchSize: loadBatchSize,
@@ -491,6 +616,32 @@ class SettingsNotifier extends Notifier<SettingsState> {
   void updateMediaCacheSize(int megabytes) {
     state = state.copyWith(mediaCacheSizeMB: megabytes);
     _save('mediaCacheSizeMB', (p) => p.setInt('mediaCacheSizeMB', megabytes));
+  }
+
+  void updateVideoOfflineCache(bool enabled) {
+    state = state.copyWith(videoOfflineCacheEnabled: enabled);
+    _save('videoOfflineCacheEnabled',
+        (p) => p.setBool('videoOfflineCacheEnabled', enabled));
+  }
+
+  void updateVideoCacheWifiOnly(bool enabled) {
+    state = state.copyWith(videoCacheWifiOnly: enabled);
+    _save('videoCacheWifiOnly', (p) => p.setBool('videoCacheWifiOnly', enabled));
+  }
+
+  void updateVideoCacheSize(int megabytes) {
+    state = state.copyWith(videoCacheSizeMB: megabytes);
+    _save('videoCacheSizeMB', (p) => p.setInt('videoCacheSizeMB', megabytes));
+  }
+
+  void updateImageQuality(MediaQuality quality) {
+    state = state.copyWith(imageQuality: quality);
+    _save('imageQuality', (p) => p.setInt('imageQuality', quality.index));
+  }
+
+  void updateImagePreloadAhead(int count) {
+    state = state.copyWith(imagePreloadAhead: count);
+    _save('imagePreloadAhead', (p) => p.setInt('imagePreloadAhead', count));
   }
 
   void updateSyncInterval(int minutes) {

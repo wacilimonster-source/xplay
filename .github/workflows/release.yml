@@ -193,12 +193,10 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Analyze (informational)
-        continue-on-error: true
+      - name: Analyze
         run: flutter analyze
 
-      - name: Test (informational)
-        continue-on-error: true
+      - name: Test
         run: flutter test --reporter expanded
 
       - name: Build arm64 APK
@@ -215,9 +213,8 @@ jobs:
           echo "APK 大小：$(du -h "$RUNNER_TEMP/xplay-v$VERSION.apk" | cut -f1)  SHA256=$SHA"
 
       - name: Verify signature
-        continue-on-error: true
         run: |
-          keytool -printcert -jarfile "$RUNNER_TEMP/xplay-v$VERSION.apk" | grep -Ei "owner|sha1|sha-1|valid" || true
+          keytool -printcert -jarfile "$RUNNER_TEMP/xplay-v$VERSION.apk" | grep -Ei "owner|sha1|sha-1|valid"
 
       - name: Compose release body
         run: |

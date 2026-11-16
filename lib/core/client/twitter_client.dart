@@ -31,6 +31,57 @@ class TweetResponse {
   String? cursorBottom;
 }
 
+/// Pixels encoded in a CDN variant URL (`?name=720x1280`), used as a
+/// tie-breaker when two mp4 variants report the same bitrate.
+int _variantResolutionPixels(String url) {
+  final uri = Uri.tryParse(url);
+  final name = uri?.queryParameters['name'];
+  final match = name != null ? RegExp(r'^(\d+)x(\d+)$').firstMatch(name) : null;
+  if (match != null) {
+    return (int.tryParse(match.group(1) ?? '') ?? 0) *
+        (int.tryParse(match.group(2) ?? '') ?? 0);
+  }
+  final pathMatch = RegExp(r'/(\d+)x(\d+)/').firstMatch(url);
+  if (pathMatch != null) {
+    return (int.tryParse(pathMatch.group(1) ?? '') ?? 0) *
+        (int.tryParse(pathMatch.group(2) ?? '') ?? 0);
+  }
+  return 0;
+}
+
+/// "Highest quality" media policy: pick the mp4 variant with the greatest
+/// bitrate, then the greatest resolution. Non-mp4 entries (HLS playlists) are
+/// only a last resort because they cannot be cached as a single file.
+String? pickHighestQualityVideoUrl(List<dynamic> variants) {
+  final mp4 = variants
+      .where((v) =>
+          v is Map &&
+          v['content_type'] == 'video/mp4' &&
+          v['url'] is String)
+      .cast<Map<dynamic, dynamic>>()
+      .toList();
+
+  if (mp4.isEmpty) {
+    for (final variant in variants) {
+      if (variant is Map && variant['url'] is String) {
+        return variant['url'] as String;
+      }
+    }
+    return null;
+  }
+
+  mp4.sort((a, b) {
+    final bitrate = ((b['bitrate'] ?? 0) as num)
+        .compareTo((a['bitrate'] ?? 0) as num);
+    if (bitrate != 0) return bitrate;
+    final pixels = _variantResolutionPixels(b['url'] as String)
+        .compareTo(_variantResolutionPixels(a['url'] as String));
+    if (pixels != 0) return pixels;
+    return (b['url'] as String).length.compareTo((a['url'] as String).length);
+  });
+  return mp4.first['url'] as String;
+}
+
 class TwitterClient {
   static String _queryIdFromPath(String path) {
     const prefix = '/graphql/';
@@ -1788,17 +1839,8 @@ final userResult =
           final variants = List.from(m['video_info']?['variants'] ?? []);
           if (variants.isEmpty) continue;
 
-          var bestVariant = variants
-              .where(
-                  (v) => v['content_type'] == 'video/mp4' && v['url'] != null)
-              .toList()
-            ..sort((a, b) => (b['bitrate'] ?? 0).compareTo(a['bitrate'] ?? 0));
-
-          if (bestVariant.isNotEmpty) {
-            mediaUrls.add(bestVariant.first['url']);
-          } else if (variants.first['url'] != null) {
-            mediaUrls.add(variants.first['url']);
-          }
+          final best = pickHighestQualityVideoUrl(variants);
+          if (best != null) mediaUrls.add(best);
         } else if (m['type'] == 'photo') {
           if (m['media_url_https'] != null) {
             mediaUrls.add(m['media_url_https']);

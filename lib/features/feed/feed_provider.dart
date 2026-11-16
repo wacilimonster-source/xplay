@@ -410,7 +410,7 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
         }
       }
 
-      Future<List<Tweet>> accept(List<Tweet> candidates) async {
+      Future<List<Tweet>> accept(List<Tweet> candidates, String source) async {
         final deduped = <Tweet>[];
         for (final t in candidates) {
           if (seenIds.contains(t.id)) continue;
@@ -418,7 +418,7 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
               seenMedia.contains(t.mediaUrls.first)) {
             continue;
           }
-          deduped.add(t);
+          deduped.add(t.copyWith(source: source));
         }
         final out = await Repository.filterWatched(deduped,
             enabled: settings.avoidWatchedContent);
@@ -450,7 +450,7 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
             .where((t) =>
                 !seenIds.contains(t.id) &&
                 (t.mediaUrls.isEmpty || !seenMedia.contains(t.mediaUrls.first)))
-            .toList());
+            .toList(), 'Cache');
 
         if (localNew.isNotEmpty) {
           allNewTweets.addAll(localNew);
@@ -505,7 +505,7 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
                   !seenIds.contains(t.id) &&
                   (t.mediaUrls.isEmpty ||
                       !seenMedia.contains(t.mediaUrls.first)))
-              .toList());
+              .toList(), 'API');
 
           if (response.tweets.isNotEmpty) {
             await Repository.insertCachedMedia(response.tweets);
@@ -550,13 +550,20 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
         return;
       }
 
-      // Shuffle candidates BEFORE taking the batch to improve diversity
+      // Shuffle candidates BEFORE taking the batch to improve diversity.
       allNewTweets.shuffle();
+      final batch = allNewTweets.take(settings.loadBatchSize).toList();
 
-      final finalNewTweets = allNewTweets
-          .take(settings.loadBatchSize)
-          .map((t) => t.copyWith(source: t.source ?? 'Mixed'))
-          .toList();
+      // M2: the fresh/cached mix ratio must apply to paged content too, not
+      // just to the stream rebuilt on refresh. `accept()` tagged each item's
+      // origin so we can interleave the two pools here.
+      final apiNew = batch.where((t) => t.source == 'API').toList();
+      final cacheNew = batch.where((t) => t.source != 'API').toList();
+      final finalNewTweets = DiscoveryEngine.interleave(
+        apiNew,
+        cacheNew,
+        settings.freshMixRatio,
+      );
 
       var combined = [...base, ...finalNewTweets];
 

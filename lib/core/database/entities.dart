@@ -1,3 +1,5 @@
+import '../utils/avatar_url.dart';
+
 class Account {
   final String id;
   final String screenName;
@@ -49,10 +51,7 @@ class Subscription {
     this.profileSyncedAt,
   });
 
-  String? get profileImageUrlHighRes {
-    if (profileImageUrl == null) return null;
-    return profileImageUrl!.replaceAll('_normal', '');
-  }
+  String? get profileImageUrlHighRes => highResAvatarUrl(profileImageUrl);
 
   /// The single write mapping for the `subscriptions` table.
   ///

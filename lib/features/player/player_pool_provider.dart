@@ -2,6 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/utils/lifecycle_provider.dart';
+import '../../core/services/network_type_service.dart';
+import '../../core/services/video_cache_service.dart';
+import '../settings/settings_provider.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
@@ -102,7 +105,11 @@ class PlayerPoolNotifier extends Notifier<Map<String, PlayerInstance>> {
         enableHardwareAcceleration: true,
       ),
     );
-    player.open(Media(url), play: false);
+    // A cached file opens instantly and survives going offline. The lookup is
+    // synchronous (md5(url) -> file), so it fits inside this sync warmup path.
+    final localPath = VideoCacheService.instance.localPathSync(url);
+    player.open(Media(localPath ?? url), play: false);
+    if (localPath == null) _maybeCacheVideo(url);
 
     final instance = PlayerInstance(player, controller)..owners.add(scope);
     var newState = Map<String, PlayerInstance>.of(state)..[id] = instance;
@@ -121,6 +128,25 @@ class PlayerPoolNotifier extends Notifier<Map<String, PlayerInstance>> {
       if (victim != null) newState.remove(victim)?.dispose();
     }
     _publish(newState);
+  }
+
+  /// Downloads a video in the background when offline caching is enabled and
+  /// the current network is allowed. Never blocks the scroll/warmup path.
+  Future<void> _maybeCacheVideo(String url) async {
+    try {
+      final settings = ref.read(settingsProvider);
+      if (!settings.videoOfflineCacheEnabled) return;
+      if (settings.videoCacheWifiOnly &&
+          !await NetworkTypeService.isUnmetered()) {
+        return;
+      }
+      final cached = await VideoCacheService.instance.cache(url);
+      if (cached) {
+        await VideoCacheService.instance.enforceLimit(settings.videoCacheSizeMB);
+      }
+    } catch (_) {
+      // Offline caching is an optimisation; playback must never depend on it.
+    }
   }
 
   /// Which player to drop when the pool is over capacity.

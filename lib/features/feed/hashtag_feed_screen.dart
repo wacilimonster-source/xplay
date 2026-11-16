@@ -1,11 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/database/repository.dart';
 import '../../core/navigation/navigation_provider.dart';
 import '../../core/utils/lifecycle_provider.dart';
-import '../../core/utils/media_cache_manager.dart';
+import '../../core/utils/feed_media_preloader.dart';
 import '../player/player_pool_provider.dart';
 import '../player/widgets/media_container.dart';
 import '../../core/models/tweet.dart';
@@ -293,24 +292,21 @@ class _HashtagMediaFeedScreenState
 
       final pool = _pool;
       final activeIds = <String>{};
+      final ahead = ref.read(settingsProvider).imagePreloadAhead;
 
-      for (int i = _currentIndex - 1; i <= _currentIndex + 3; i++) {
+      for (int i = _currentIndex - 1; i <= _currentIndex + ahead; i++) {
         if (i >= 0 && i < tweets.length) {
           final tweet = tweets[i];
           activeIds.add(tweet.id);
           if (tweet.isVideo && tweet.mediaUrls.isNotEmpty) {
             pool.warmup(tweet.id, tweet.mediaUrls.first, scope: poolScope);
-          } else if (tweet.mediaUrls.isNotEmpty) {
-            for (final url in tweet.mediaUrls) {
-              precacheImage(
-                  CachedNetworkImageProvider(url,
-                      cacheManager:
-                          CustomMediaCacheManager.getInstance()),
-                  context);
-            }
           }
         }
       }
+      FeedMediaPreloader.precacheFrame(
+        context, tweets, _currentIndex,
+        ahead: ahead,
+      );
       pool.cleanupExcept(poolScope, activeIds);
     });
   }

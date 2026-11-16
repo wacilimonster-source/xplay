@@ -1,8 +1,12 @@
 package com.xplay.app
 
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.core.content.FileProvider
@@ -48,9 +52,22 @@ class MainActivity : FlutterActivity() {
                         openInstallPermissionSettings()
                         result.success(true)
                     }
+                    "isWifiConnected" -> {
+                        result.success(isWifiConnected())
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun isWifiConnected(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        val activeNetwork = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(activeNetwork) ?: return false
+        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
     }
 
     private fun canRequestInstallPackages(): Boolean =

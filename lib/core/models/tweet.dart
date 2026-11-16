@@ -1,3 +1,5 @@
+import '../utils/avatar_url.dart';
+
 class Tweet {
   final String id;
   final String text;
@@ -35,10 +37,7 @@ class Tweet {
     this.mediaHeight,
   });
 
-  String? get userAvatarUrlHighRes {
-    if (userAvatarUrl == null) return null;
-    return userAvatarUrl!.replaceAll('_normal', '');
-  }
+  String? get userAvatarUrlHighRes => highResAvatarUrl(userAvatarUrl);
 
   /// Extracts width/height from a Twitter CDN URL (e.g.
   /// https://pbs.twimg.com/media/Fxxx.jpg?format=jpg&name=600x600)

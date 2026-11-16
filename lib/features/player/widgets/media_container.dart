@@ -10,6 +10,7 @@ import '../../../core/models/tweet.dart';
 import '../../../core/utils/app_logger.dart';
 import '../../../core/utils/lifecycle_provider.dart';
 import '../../../core/utils/media_cache_manager.dart';
+import '../../../core/services/video_cache_service.dart';
 import '../../feed/widgets/text_tweet_card.dart';
 import '../player_pool_provider.dart';
 import '../../settings/settings_provider.dart';
@@ -254,8 +255,10 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
       final instance = pool[widget.tweet.id];
       if (instance != null) {
         // Re-open media to retry
-        await instance.player.open(Media(widget.tweet.mediaUrls.first),
-            play: widget.isVisible);
+        final source = VideoCacheService.instance
+                .localPathSync(widget.tweet.mediaUrls.first) ??
+            widget.tweet.mediaUrls.first;
+        await instance.player.open(Media(source), play: widget.isVisible);
       }
       return;
     }
@@ -554,8 +557,10 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
                 _retryCount = 0;
                 _userPaused = false;
               });
-              instance.player
-                  .open(Media(widget.tweet.mediaUrls.first), play: true);
+              final source = VideoCacheService.instance
+                      .localPathSync(widget.tweet.mediaUrls.first) ??
+                  widget.tweet.mediaUrls.first;
+              instance.player.open(Media(source), play: true);
             },
             child:
                 const Text('重试', style: TextStyle(color: Colors.white70)),
@@ -658,12 +663,16 @@ class _TiktokMediaContainerState extends ConsumerState<TiktokMediaContainer> {
   }
 
   Widget _buildImageGallery() {
-    // Decode at roughly twice the on-screen width. Without a downscale target a
-    // 4096px photo is decoded full-size per item, which drops frames or kills
-    // low-memory devices. Only the width is capped so the aspect ratio (and thus
-    // BoxFit.contain) stays intact.
-    final targetWidth =
-        (MediaQuery.of(context).size.width * 2).clamp(600, 1600).round();
+    // Highest is the default: X already gives us original-size URLs, so a hard
+    // 1600px decode cap was throwing away detail. Users on constrained devices
+    // can still ask for a smaller decode width in Settings.
+    final quality = ref.read(settingsProvider).imageQuality;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final int? targetWidth = switch (quality) {
+      MediaQuality.highest => null,
+      MediaQuality.balanced => (screenWidth * 2).clamp(600, 1600).round(),
+      MediaQuality.dataSaver => screenWidth.clamp(400, 800).round(),
+    };
 
     if (widget.tweet.mediaUrls.length == 1) {
       return SizedBox.expand(

@@ -1,5 +1,7 @@
 # 报告二（全功能完整性审计）未修复项清单
 
+> ✅ **2026-11-16 更新：下列 2 项已全部修复并验证。** G2 已完整接线到 `enforceLimit`；M2 的 `freshMixRatio` 已通过 `DiscoveryEngine.interleave` 覆盖 `fetchMore` 翻页批次。`flutter analyze` 零问题、`flutter test` 100 通过 1 跳过。本文以下保留原始记录供追溯。
+
 > 提取自：`docs/feature_completeness_audit.md`
 > 复测基准时间：2026-08-20（对照 `docs/bug_fix_retest_2026-08-20.md` 当前真实代码逐条 grep 核实）
 > 说明：本报告二原始共 15 个缺口（G1–G2、M1–M7、L1–L5）。其中 **7 项已被另一 agent 修复**；**M1（popular/trending 取数）、M4（视频本地缓存）、L1（播完复用跳过）、L2（缩放/亮度）、L5（认证头依赖）经用户复核属设计如此/非缺陷**，已移出。M3（`cooldownMinutes`）经用户复核确认：**当前"限流惩罚器"行为才是合理设计，不应改成"平时也按设置间隔节流"，否则反而拖慢更新**，故亦移出待修。**以下仅 2 项仍为待修**（G2 真 bug、M2 部分实现且用户已决定修复）。

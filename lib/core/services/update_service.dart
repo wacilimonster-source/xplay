@@ -13,6 +13,8 @@ class UpdateService {
   static const String _lastCheckedKey = 'last_update_check';
   static const String _ignoredVersionsKey = 'ignored_update_versions';
   static const String _downloadFileName = 'xplay-update.apk';
+  // Reuse one connection pool for manifest checks and APK downloads.
+  static final http.Client _client = http.Client();
   static File? _downloadedApk;
   static String? _downloadedVersion;
   static bool _downloadInProgress = false;
@@ -38,7 +40,7 @@ class UpdateService {
           'ts': DateTime.now().millisecondsSinceEpoch.toString()
         },
       );
-      final response = await http.get(
+      final response = await _client.get(
         manifestUri,
         headers: const {
           'Accept': 'application/json',
@@ -174,11 +176,10 @@ class UpdateService {
     required void Function(int received, int total)? onProgress,
     required Duration timeout,
   }) async {
-    final client = http.Client();
     try {
       final request = http.Request('GET', Uri.parse(url));
       request.headers['Cache-Control'] = 'no-cache';
-      final streamed = await client.send(request).timeout(timeout);
+      final streamed = await _client.send(request).timeout(timeout);
       if (streamed.statusCode != HttpStatus.ok) {
         throw UpdateDownloadException('下载源返回 HTTP ${streamed.statusCode}');
       }
@@ -203,7 +204,7 @@ class UpdateService {
         throw const UpdateDownloadException('下载内容为空');
       }
     } finally {
-      client.close();
+      // `_client` is shared for the lifetime of the app - never close it here.
       if (await target.exists()) {
         final length = await target.length();
         if (length == 0) await target.delete();

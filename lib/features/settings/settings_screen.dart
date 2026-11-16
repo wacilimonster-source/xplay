@@ -7,6 +7,7 @@ import '../../core/client/twitter_client.dart';
 import '../../core/database/repository.dart';
 import '../../core/utils/media_cache_manager.dart';
 import '../../core/services/update_service.dart';
+import '../../core/services/video_cache_service.dart';
 import 'update_dialog.dart';
 import '../feed/feed_provider.dart';
 import '../subscriptions/subscription_import_screen.dart';
@@ -383,6 +384,17 @@ class PlaybackSettingsPage extends ConsumerWidget {
     }
   }
 
+  String _getQualityLabel(MediaQuality quality) {
+    switch (quality) {
+      case MediaQuality.highest:
+        return '最高（原图）';
+      case MediaQuality.balanced:
+        return '均衡（1600px）';
+      case MediaQuality.dataSaver:
+        return '省流量（800px）';
+    }
+  }
+
   String _getFeedSortLabel(FeedSort sort) {
     switch (sort) {
       case FeedSort.latest:
@@ -402,7 +414,8 @@ class PlaybackSettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(settingsProvider);
+    final settings =
+        ref.watch(settingsProvider.select((s) => s.playbackSlice));
     final notifier = ref.read(settingsProvider.notifier);
 
     return Scaffold(
@@ -430,6 +443,29 @@ class PlaybackSettingsPage extends ConsumerWidget {
             subtitle: const Text('视频可见时自动播放'),
             value: settings.autoplay,
             onChanged: (v) => notifier.toggleAutoplay(v),
+          ),
+          ListTile(
+            title: const Text('图片画质'),
+            subtitle: Text('当前：${_getQualityLabel(settings.imageQuality)}'),
+            trailing: DropdownButton<MediaQuality>(
+              value: settings.imageQuality,
+              items: MediaQuality.values
+                  .map((q) => DropdownMenuItem(
+                        value: q,
+                        child: Text(_getQualityLabel(q)),
+                      ))
+                  .toList(),
+              onChanged: (val) =>
+                  val != null ? notifier.updateImageQuality(val) : null,
+            ),
+          ),
+          _SliderSetting(
+            title: '图片预加载条数',
+            subtitle: '向前预加载多少条内容的图片',
+            value: settings.imagePreloadAhead.toDouble(),
+            min: 0,
+            max: 8,
+            onChanged: (v) => notifier.updateImagePreloadAhead(v.toInt()),
           ),
           ListTile(
             title: const Text('视频播放结束后'),
@@ -551,7 +587,8 @@ class DiscoverySettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(settingsProvider);
+    final settings =
+        ref.watch(settingsProvider.select((s) => s.discoverySlice));
     final notifier = ref.read(settingsProvider.notifier);
 
     return Scaffold(
@@ -692,6 +729,8 @@ class _StorageSettingsPageState extends ConsumerState<StorageSettingsPage> {
   int _metadataCount = 0;
   double _cacheSizeMB = 0;
   double _otherCacheMB = 0;
+  double _videoCacheMB = 0;
+  int _videoCacheCount = 0;
   bool _busy = false;
 
   @override
@@ -706,6 +745,8 @@ class _StorageSettingsPageState extends ConsumerState<StorageSettingsPage> {
     int count = 0;
     int ownBytes = 0;
     int otherBytes = 0;
+    int videoBytes = 0;
+    int videoCount = 0;
     try {
       count = await Repository.getCachedMediaCount();
     } catch (e) {
@@ -717,11 +758,19 @@ class _StorageSettingsPageState extends ConsumerState<StorageSettingsPage> {
     } catch (e) {
       debugPrint('XFLOW: cache size unavailable: $e');
     }
+    try {
+      videoBytes = await VideoCacheService.instance.sizeBytes();
+      videoCount = await VideoCacheService.instance.fileCount();
+    } catch (e) {
+      debugPrint('XFLOW: video cache size unavailable: $e');
+    }
     if (!mounted) return;
     setState(() {
       _metadataCount = count;
       _cacheSizeMB = ownBytes / (1024 * 1024);
       _otherCacheMB = otherBytes / (1024 * 1024);
+      _videoCacheMB = videoBytes / (1024 * 1024);
+      _videoCacheCount = videoCount;
     });
   }
 
@@ -755,6 +804,32 @@ class _StorageSettingsPageState extends ConsumerState<StorageSettingsPage> {
           ? '缓存上限已调整为 $limitMB MB，已清除 ${freedMB.toStringAsFixed(1)} MB'
           : '缓存未超出 $limitMB MB 上限'),
     ));
+  }
+
+  Future<void> _clearVideoCache() async {
+    if (_busy) return;
+    final cleared = _videoCacheMB;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _busy = true);
+    await VideoCacheService.instance.clear();
+    await _reload();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    messenger.showSnackBar(
+        SnackBar(content: Text('已清除视频缓存 ${cleared.toStringAsFixed(1)} MB')));
+  }
+
+  Future<void> _applyVideoCacheLimit(int limitMB) async {
+    if (_busy) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _busy = true);
+    final afterBytes =
+        await VideoCacheService.instance.enforceLimit(limitMB);
+    await _reload();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    messenger.showSnackBar(SnackBar(
+        content: Text('视频缓存上限已设为 $limitMB MB，当前 ${afterBytes ~/ (1024 * 1024)} MB')));
   }
 
   Future<void> _resetWatchedRecords() async {
@@ -796,7 +871,8 @@ class _StorageSettingsPageState extends ConsumerState<StorageSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final settings = ref.watch(settingsProvider);
+    final settings =
+        ref.watch(settingsProvider.select((s) => s.storageSlice));
     final notifier = ref.read(settingsProvider.notifier);
 
     return Scaffold(
@@ -815,10 +891,10 @@ class _StorageSettingsPageState extends ConsumerState<StorageSettingsPage> {
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           ListTile(
             title: const Text('本地媒体缓存'),
-            // 口径写清楚：这个上限只管图片等走缓存管理器的文件，视频是流式播放
-            // 不落地；头像等属于另一个管理器，只能整体清除、不受该上限约束。
+            // 口径写清楚：这个上限只管图片等走缓存管理器的文件；视频缓存有独立
+            // 上限（见下方）。头像等属于另一个管理器，只能整体清除。
             subtitle: Text(
-                '本应用缓存 ${_cacheSizeMB.toStringAsFixed(1)} MB / 上限 ${settings.mediaCacheSizeMB} MB（不含视频流，视频不落地）'
+                '本应用图片缓存 ${_cacheSizeMB.toStringAsFixed(1)} MB / 上限 ${settings.mediaCacheSizeMB} MB（视频缓存单独统计）'
                 ' • 其他图片缓存 ${_otherCacheMB.toStringAsFixed(1)} MB（清除时一并清掉，不受该上限控制）'
                 ' • 元数据 $_metadataCount 条'),
           ),
@@ -838,6 +914,41 @@ class _StorageSettingsPageState extends ConsumerState<StorageSettingsPage> {
             title: const Text('清除媒体缓存', style: TextStyle(color: Colors.orange)),
             enabled: !_busy,
             onTap: _clearCache,
+          ),
+          const Divider(),
+          SwitchListTile(
+            title: const Text('视频离线缓存'),
+            subtitle: const Text('把看过的视频存到本地，二次观看秒开且可离线播放'),
+            value: settings.videoOfflineCacheEnabled,
+            onChanged: (v) => notifier.updateVideoOfflineCache(v),
+          ),
+          SwitchListTile(
+            title: const Text('仅 Wi-Fi 时下载视频'),
+            subtitle: const Text('避免消耗移动数据'),
+            value: settings.videoCacheWifiOnly,
+            onChanged: (v) => notifier.updateVideoCacheWifiOnly(v),
+          ),
+          ListTile(
+            title: const Text('视频缓存占用'),
+            subtitle: Text('已缓存 $_videoCacheCount 个视频 / ${_videoCacheMB.toStringAsFixed(1)} MB'
+                ' / 上限 ${settings.videoCacheSizeMB} MB'),
+          ),
+          Slider(
+            value: settings.videoCacheSizeMB
+                .toDouble()
+                .clamp(200.0, 5000.0),
+            min: 200,
+            max: 5000,
+            divisions: 24,
+            label: '${settings.videoCacheSizeMB} MB',
+            onChanged: (v) => notifier.updateVideoCacheSize(v.round()),
+            onChangeEnd: (v) => _applyVideoCacheLimit(v.round()),
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_forever, color: Colors.orange),
+            title: const Text('清除视频缓存', style: TextStyle(color: Colors.orange)),
+            enabled: !_busy,
+            onTap: _clearVideoCache,
           ),
           const Divider(),
           _SliderSetting(
@@ -906,7 +1017,8 @@ class NetworkSettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(settingsProvider);
+    final settings =
+        ref.watch(settingsProvider.select((s) => s.networkSlice));
     final notifier = ref.read(settingsProvider.notifier);
 
     return Scaffold(
@@ -967,7 +1079,8 @@ class SearchSettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(settingsProvider);
+    final settings =
+        ref.watch(settingsProvider.select((s) => s.searchSlice));
     final notifier = ref.read(settingsProvider.notifier);
 
     return Scaffold(

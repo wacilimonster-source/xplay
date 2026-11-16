@@ -180,6 +180,7 @@ class HashtagMediaNotifier extends AsyncNotifier<FeedState> {
       state = AsyncData(latest.copyWith(
         tweets: [...latest.tweets, ...uniqueNew],
         cursorBottom: response.cursorBottom,
+        clearCursor: response.cursorBottom == null,
         isLoadingMore: false,
         hasMore: response.cursorBottom != null,
         rateLimited: response.rateLimited,
