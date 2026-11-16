@@ -281,6 +281,8 @@ jobs:
 
       - name: Update update.json on main
         run: |
+          set -E
+          trap 'echo "::error::UPDATE_JSON_FAILED line=$LINENO cmd=$BASH_COMMAND"' ERR
           if [ "$PRERELEASE" = "true" ]; then
             echo "预发布版本：跳过 update.json 更新"
             exit 0
