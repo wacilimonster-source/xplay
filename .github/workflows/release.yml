@@ -236,13 +236,10 @@ jobs:
           APK="$RUNNER_TEMP/xplay-v$VERSION.apk"
           SDK_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           APKSIGNER=$(find "$SDK_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)
-          echo "::notice::SDK_HOME=$SDK_HOME APKSIGNER=$APKSIGNER APK=$APK"
           if [ -z "$APKSIGNER" ]; then
-            echo "::error::apksigner not found"
+            echo "::error::apksigner not found in $SDK_HOME/build-tools"
             exit 1
           fi
-          "$APKSIGNER" verify --print-certs "$APK" | head -n 3 |
-            while IFS= read -r line; do echo "::notice::$line"; done
           "$APKSIGNER" verify "$APK"
 
       - name: Compose release body
@@ -280,9 +277,9 @@ jobs:
           make_latest: ${{ env.PRERELEASE == 'true' && 'false' || 'true' }}
 
       - name: Update update.json on main
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -E
-          trap 'echo "::error::UPDATE_JSON_FAILED line=$LINENO cmd=$BASH_COMMAND"' ERR
           if [ "$PRERELEASE" = "true" ]; then
             echo "预发布版本：跳过 update.json 更新"
             exit 0
@@ -302,9 +299,6 @@ jobs:
           echo "发布资产可访问：$URL"
           export APK_URL="$URL"
 
-          git fetch origin main
-          git checkout -f -B main origin/main
-          git pull --ff-only origin main
           python3 - <<'PY'
           import datetime, json, os
           version = os.environ["VERSION"]
@@ -323,15 +317,16 @@ jobs:
               f.write("\n")
           print(url)
           PY
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- update.json; then
-            echo "update.json 无变化，跳过提交"
-            exit 0
-          fi
-          git add update.json
-          git commit -m "chore(release): update.json -> v$VERSION [skip ci]"
-          git push origin HEAD:main
+          # Write through the Contents API: the checkout is at a tag, and a
+          # direct git push to main can be rejected while other release commits
+          # land. The API always updates the current tip of main atomically.
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/contents/update.json?ref=main" --jq .sha)
+          CONTENT=$(base64 -w0 update.json)
+          gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/update.json" \
+            -f message="chore(release): update.json -> v$VERSION [skip ci]" \
+            -f content="$CONTENT" \
+            -f sha="$SHA" \
+            -f branch=main
 
       - name: Summary
         if: always()
