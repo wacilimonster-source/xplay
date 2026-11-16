@@ -211,8 +211,9 @@ jobs:
           if [ "$status" -ne 0 ]; then
             # Surface the actual failure in the job annotations (visible without
             # needing to download the full job log).
-            tail -n 120 "$RUNNER_TEMP/build.log" |
-              grep -v '^[[:space:]]*$' | tail -n 30 | cut -c1-400 |
+            tail -n 200 "$RUNNER_TEMP/build.log" |
+              grep -v '^[[:space:]]*$' |
+              grep -Ev '\([0-9][^)]* available\)$' | tail -n 10 | cut -c1-400 |
               while IFS= read -r line; do echo "::error::$line"; done
             exit "$status"
           fi
