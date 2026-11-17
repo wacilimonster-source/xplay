@@ -108,9 +108,20 @@ jobs:
               if sh("git", "rev-parse", "-q", "--verify", "refs/tags/v" + version).returncode == 0:
                   sys.exit("tag v%s 已存在，请换一个版本号" % version)
 
+          notes = None
           if input_notes:
               notes = input_notes
           else:
+              # A curated RELEASE_NOTES.md wins when its version matches this
+              # release; otherwise fall back to the generated commit list.
+              notes_file = os.path.join(
+                  os.environ.get("GITHUB_WORKSPACE", "."), "RELEASE_NOTES.md")
+              if os.path.exists(notes_file):
+                  saved = open(notes_file, encoding="utf-8").read().strip()
+                  vm = re.search(r"^version:\s*([0-9][0-9A-Za-z.\-]*)\s*$", saved, re.M)
+                  if vm and vm.group(1) == cur_version:
+                      notes = re.sub(r"^version:.*\n", "", saved, count=1, flags=re.M).strip()
+          if not notes:
               base = "HEAD^" if event == "push" else "HEAD"
               d = sh("git", "describe", "--tags", "--abbrev=0", base)
               prev = d.stdout.strip() if d.returncode == 0 else ""
