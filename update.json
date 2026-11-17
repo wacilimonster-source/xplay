@@ -5,6 +5,6 @@
   "apkUrls": [
     "https://github.com/wacilimonster-source/xplay/releases/download/v0.1.34/xplay-v0.1.34.apk"
   ],
-  "notes": "新功能\n- 视频离线缓存：Wi-Fi 下自动缓存，二次观看秒开、可离线播放；设置中可开关、仅 Wi-Fi、调上限、一键清空\n- 独立搜索页：底部第 4 个 Tab，关键词 + 视频/图片/文字过滤，全屏浏览结果，支持分页与去重\n- 图片预加载：当前及后续若干条的图片、头像、视频封面提前预热；画质默认原图（可选均衡/省流量）\n\n体验与工程\n- 翻页也走完整发现算法（freshMixRatio 覆盖加载更多），修复末页游标重复请求\n- 设置页按字段精确订阅，拖动滑块不再整页重建；更新检查/签名校验改为 CI 硬门禁\n- 修复 Ubuntu 26 Runner 默认 Java 25 导致的 Gradle 构建失败（锁定 ubuntu-24.04 + Java 21）\n\n门控：flutter analyze 0 问题；flutter test 100 通过 / 1 跳过；APK 已由 GitHub Actions 签名构建。",
-  "publishedAt": "2026-11-16"
+  "notes": "XPlay v0.1.34 — 视频离线缓存、独立搜索页与最高画质\n\n新功能\n- 视频离线缓存：Wi-Fi 下自动落盘，二次观看秒开、可离线播放；设置中可开关、仅 Wi-Fi 下载、调整上限与一键清空\n- 独立搜索页：底部第 4 个 Tab，关键词搜索 + 视频/图片/文字过滤，全屏浏览结果，支持分页与去重\n- 图片预加载与最高画质：提前预热当前及后续若干条的图片、头像与视频封面；默认按原图解码，可选均衡/省流量\n\n体验与工程\n- 翻页加载也走完整发现算法（freshMixRatio 覆盖加载更多），并修复末页游标未清空导致的重复请求\n- 设置页按字段精确订阅，拖动滑块不再触发整页重建\n- 检查更新、签名校验改为 CI 硬门禁；修复 Ubuntu 26 Runner 默认 Java 25 导致的 Gradle 构建失败\n\n验证：flutter analyze 0 问题；flutter test 100 通过 / 1 跳过；APK 由 GitHub Actions 签名构建。",
+  "publishedAt": "2026-11-17"
 }
